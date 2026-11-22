@@ -1,21 +1,15 @@
-export type MacroCategorySlug =
-  | 'cani'
-  | 'gatti'
-  | 'viaggio-trasporto'
-  | 'cura-toelettatura'
-  | 'smart-pet-tech'
-  | 'piccoli-animali'
-  | 'novita'
-  | 'offerte';
-
-export type QuickFilterTab =
-  | 'tutti'
-  | 'cani'
-  | 'gatti'
-  | 'smart-pet-tech'
-  | 'offerte';
+export type MacroCategorySlug = string;
 
 export type SortOption = 'popular' | 'price-asc' | 'price-desc' | 'rating';
+
+export interface WooCategory {
+  id: number;
+  name: string;
+  slug: string;
+  parent: number;
+  count: number;
+  image?: string;
+}
 
 export interface ProductVariation {
   variation_id: number;
@@ -34,6 +28,8 @@ export interface Product {
   slug: string;
   name: string;
   brand: string;
+  categoryIds: number[];
+  categories: { id: number; name: string; slug: string }[];
   categorySlug: MacroCategorySlug;
   categoryLabel: string;
   subcategories: string[];
@@ -50,6 +46,7 @@ export interface Product {
   images: string[];
   variations: ProductVariation[];
   default_variation_id: number;
+  hasVariations?: boolean;
 }
 
 export interface CartItem {
@@ -59,15 +56,25 @@ export interface CartItem {
   quantity: number;
 }
 
+export interface MegaCategoryLink {
+  label: string;
+  filterTerm: string;
+  categoryId?: number;
+  categorySlug?: string;
+}
+
 export interface MegaCategoryColumn {
   heading: string;
-  links: { label: string; filterTerm: string }[];
+  links: MegaCategoryLink[];
 }
 
 export interface MegaCategory {
+  id?: number;
   slug: MacroCategorySlug;
   name: string;
   tagline: string;
+  count?: number;
+  image?: string;
   iconName:
     | 'Dog'
     | 'Cat'
@@ -78,7 +85,7 @@ export interface MegaCategory {
     | 'Star'
     | 'Tag';
   columns: MegaCategoryColumn[];
-  featuredProductId: number;
+  featuredProductId?: number;
 }
 
 export interface ReviewItem {

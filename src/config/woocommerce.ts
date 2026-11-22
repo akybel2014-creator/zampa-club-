@@ -31,7 +31,7 @@ export const WOOCOMMERCE_CONFIG: WooCommerceConfig = {
   WC_CONSUMER_SECRET,
   FREE_SHIPPING_THRESHOLD: 39,
   STANDARD_SHIPPING_COST: 4.9,
-  CURRENCY_SYMBOL: '€',
+  CURRENCY_SYMBOL: '$',
 };
 
 export function isWooCommerceConfigured(): boolean {
@@ -49,10 +49,19 @@ export function isWooCommerceConfigured(): boolean {
   );
 }
 
+export function formatUsd(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 /**
- * Snippet PHP consigliato su WordPress (via plugin WPCode) per permettere
- * a WooCommerce di aggiungere uno o più ID prodotto/variante con quantità
- * tramite URL: https://zampaclub.it/pagamento/?add-to-cart=ID1:QTA1,ID2:QTA2
+ * Recommended WordPress PHP snippet (via WPCode plugin) to support
+ * adding multiple product/variation IDs with quantities via URL:
+ * https://zampaclub.it/pagamento/?add-to-cart=ID1:QTY1,ID2:QTY2
  */
 export const WPCODE_MULTI_CART_PHP_SNIPPET = `add_action('wp_loaded', function() {
   if (empty($_REQUEST['add-to-cart'])) return;

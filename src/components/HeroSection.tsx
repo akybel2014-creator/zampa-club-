@@ -20,7 +20,7 @@ export function HeroSection({
         <div className="lg:col-span-8 relative rounded-2xl overflow-hidden border border-[#E7E5E4] bg-[#1C1917] min-h-[380px] sm:min-h-[440px] flex items-end">
           <ResilientImage
             src={HERO_ASSETS.mainBanner}
-            alt="Cane Golden Retriever e gatto tigrato felici sul divano di casa"
+            alt="Happy Golden Retriever dog and tabby cat relaxing on a sunlit sofa"
             className="absolute inset-0 w-full h-full object-cover"
           />
           <div
@@ -30,14 +30,14 @@ export function HeroSection({
 
           <div className="relative z-10 p-6 sm:p-10 max-w-2xl space-y-4">
             <div className="text-xs font-semibold uppercase tracking-wider text-[#FDBA74]">
-              Pet Boutique · Selezione Cura & Comfort
+              Pet Boutique · Care & Comfort Collection
             </div>
             <h1 className="font-display text-3xl sm:text-4xl lg:text-[42px] font-bold text-white leading-[1.12] tracking-tight text-balance">
-              Tutto il meglio per rendere felice il tuo amico a 4 zampe
+              Everything your four-legged best friend needs to thrive
             </h1>
             <p className="text-sm sm:text-base text-[#E7E5E4] leading-relaxed max-w-xl">
-              Cucce ortopediche, accessori da passeggio, tiragraffi di design e dispositivi
-              smart testati da proprietari di cani e gatti in tutta Italia.
+              Orthopedic memory foam beds, ergonomic harnesses, Nordic cat trees, and smart
+              pet tech tested by dog and cat parents nationwide.
             </p>
             <div className="pt-1 flex flex-wrap items-center gap-3">
               <button
@@ -45,31 +45,31 @@ export function HeroSection({
                 onClick={onExploreBestSellers}
                 className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
               >
-                <span>Scopri i Best Seller</span>
+                <span>Shop Best Sellers</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
               <button
                 type="button"
-                onClick={() => onSelectCategory('offerte')}
+                onClick={() => onSelectCategory('deals')}
                 className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-white/15 hover:bg-white/25 backdrop-blur-sm text-white text-sm font-semibold border border-white/25 transition-colors whitespace-nowrap"
               >
-                Offerte del Mese
+                Monthly Deals
               </button>
             </div>
           </div>
         </div>
 
-        {/* Right Side: 2 Dedicated Promo Cards (Speciale Cani & Speciale Gatti) */}
+        {/* Right Side: 2 Dedicated Promo Cards (Dogs & Cats) */}
         <div className="lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-5">
-          {/* Speciale Cani */}
+          {/* Dogs Collection */}
           <button
             type="button"
-            onClick={() => onSelectCategory('cani')}
+            onClick={() => onSelectCategory('dogs')}
             className="group relative rounded-2xl overflow-hidden border border-[#E7E5E4] bg-white text-left min-h-[205px] flex items-end transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-md"
           >
             <ResilientImage
               src={HERO_ASSETS.promoDogs}
-              alt="Bulldog francese con pettorina arancione"
+              alt="French Bulldog wearing an orange ergonomic harness"
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             />
             <div
@@ -79,13 +79,13 @@ export function HeroSection({
             <div className="relative z-10 p-5 w-full flex items-end justify-between gap-3">
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-[#FDBA74]">
-                  Collezione Passeggio & Riposo
+                  Walk & Rest Essentials
                 </div>
                 <h2 className="font-display text-xl font-bold text-white mt-0.5">
-                  Speciale Cani
+                  Dogs Collection
                 </h2>
                 <p className="text-xs text-[#E7E5E4] mt-0.5">
-                  Pettorine anti-tiro e cucce memory foam
+                  No-pull harnesses & orthopedic beds
                 </p>
               </div>
               <span className="w-9 h-9 rounded-full bg-[#F97316] text-white inline-flex items-center justify-center shrink-0 group-hover:bg-[#EA580C] transition-colors">
@@ -94,15 +94,15 @@ export function HeroSection({
             </div>
           </button>
 
-          {/* Speciale Gatti */}
+          {/* Cats Collection */}
           <button
             type="button"
-            onClick={() => onSelectCategory('gatti')}
+            onClick={() => onSelectCategory('cats')}
             className="group relative rounded-2xl overflow-hidden border border-[#E7E5E4] bg-white text-left min-h-[205px] flex items-end transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-md"
           >
             <ResilientImage
               src={HERO_ASSETS.promoCats}
-              alt="Gatto British Shorthair su tiragraffi in legno di betulla"
+              alt="British Shorthair cat lounging on a birch wood cat perch"
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             />
             <div
@@ -112,13 +112,13 @@ export function HeroSection({
             <div className="relative z-10 p-5 w-full flex items-end justify-between gap-3">
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-[#5EEAD4]">
-                  Tiragraffi & Fontanelle
+                  Cat Trees & Fountains
                 </div>
                 <h2 className="font-display text-xl font-bold text-white mt-0.5">
-                  Speciale Gatti
+                  Cats Collection
                 </h2>
                 <p className="text-xs text-[#E7E5E4] mt-0.5">
-                  Design nordico e idratazione silenziosa
+                  Nordic design & whisper-quiet hydration
                 </p>
               </div>
               <span className="w-9 h-9 rounded-full bg-[#0D9488] text-white inline-flex items-center justify-center shrink-0 group-hover:bg-[#0F766E] transition-colors">
@@ -134,23 +134,23 @@ export function HeroSection({
         {[
           {
             icon: CheckCircle2,
-            title: 'Qualità Testata',
-            desc: 'Materiali atossici e cuciture verificate',
+            title: 'Tested Quality',
+            desc: 'Pet-safe materials & durable stitching',
           },
           {
             icon: Truck,
-            title: 'Spedizione Tracciata',
-            desc: 'Gratis da 39€ con tracking via email',
+            title: 'Tracked Shipping',
+            desc: 'Free over $39 with email tracking',
           },
           {
             icon: Lock,
-            title: 'Pagamenti Sicuri',
-            desc: 'Checkout SSL WordPress & WooCommerce',
+            title: 'Secure Checkout',
+            desc: '256-bit SSL WooCommerce payments',
           },
           {
             icon: HeartHandshake,
-            title: 'Assistenza Pet Lover',
-            desc: 'Supporto dedicato per taglie e resi',
+            title: 'Pet Lover Support',
+            desc: 'Dedicated sizing & return help',
           },
         ].map((box) => {
           const Icon = box.icon;

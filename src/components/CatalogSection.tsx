@@ -2,50 +2,35 @@ import { ArrowUpDown, RotateCcw, SearchX } from 'lucide-react';
 import {
   MacroCategorySlug,
   Product,
-  QuickFilterTab,
   SortOption,
+  WooCategory,
 } from '../types/shop';
 import { ProductCard } from './ProductCard';
 
 interface CatalogSectionProps {
   products: Product[];
+  wooCategories: WooCategory[];
   loading: boolean;
-  activeTab: QuickFilterTab;
+  activeTab: string;
   activeMacroCategory: MacroCategorySlug | null;
+  activeCategoryId: number | null;
   activeSubFilter: string | null;
   searchQuery: string;
   sortBy: SortOption;
-  onChangeTab: (tab: QuickFilterTab) => void;
+  onChangeTab: (tabSlug: string, categoryId?: number) => void;
   onChangeSort: (sort: SortOption) => void;
   onResetFilters: () => void;
   onOpenProduct: (product: Product) => void;
   onQuickAdd: (product: Product) => void;
 }
 
-const FILTER_TABS: { id: QuickFilterTab; label: string }[] = [
-  { id: 'tutti', label: 'Tutti' },
-  { id: 'cani', label: 'Cani' },
-  { id: 'gatti', label: 'Gatti' },
-  { id: 'smart-pet-tech', label: 'Smart Tech' },
-  { id: 'offerte', label: 'In Offerta' },
-];
-
-const MACRO_LABELS: Record<MacroCategorySlug, string> = {
-  cani: 'Cani',
-  gatti: 'Gatti',
-  'viaggio-trasporto': 'Viaggio & Trasporto',
-  'cura-toelettatura': 'Cura & Toelettatura',
-  'smart-pet-tech': 'Smart Pet Tech',
-  'piccoli-animali': 'Piccoli Animali',
-  novita: 'Novità del Mese',
-  offerte: 'Offerte & Set Risparmio',
-};
-
 export function CatalogSection({
   products,
+  wooCategories,
   loading,
   activeTab,
   activeMacroCategory,
+  activeCategoryId,
   activeSubFilter,
   searchQuery,
   sortBy,
@@ -55,47 +40,77 @@ export function CatalogSection({
   onOpenProduct,
   onQuickAdd,
 }: CatalogSectionProps) {
+  const parentCategories = wooCategories.filter((c) => c.parent === 0);
+  const tabCategories = (parentCategories.length > 0 ? parentCategories : wooCategories).slice(
+    0,
+    4
+  );
+
+  const filterTabs: { id: string; label: string; categoryId?: number }[] = [
+    { id: 'all', label: 'Shop All' },
+    ...tabCategories.map((cat) => ({
+      id: cat.slug,
+      label: cat.name,
+      categoryId: cat.id,
+    })),
+    { id: 'deals', label: 'On Sale' },
+  ];
+
   const hasExtraFilter =
     Boolean(activeMacroCategory) ||
+    Boolean(activeCategoryId) ||
     Boolean(activeSubFilter) ||
     searchQuery.trim().length > 0;
 
+  const activeCategoryName =
+    wooCategories.find((c) => c.id === activeCategoryId)?.name ||
+    wooCategories.find((c) => c.slug === activeMacroCategory)?.name ||
+    (activeMacroCategory === 'deals'
+      ? 'Deals & Value Sets'
+      : activeMacroCategory === 'new-arrivals'
+        ? 'New Arrivals'
+        : activeMacroCategory);
+
   return (
     <section
-      id="catalogo-prodotti"
+      id="product-catalog"
       className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 scroll-mt-24"
     >
       {/* Section Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
         <div>
           <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#1C1917] tracking-tight">
-            Catalogo Selezionato
+            Curated Catalog
           </h2>
           <p className="text-sm text-[#57534E] mt-1">
             {products.length}{' '}
-            {products.length === 1 ? 'articolo disponibile' : 'articoli disponibili'} ·
-            Seleziona le varianti per taglia o colore
+            {products.length === 1 ? 'item available' : 'items available'} · Select
+            size or color options
           </p>
         </div>
 
         {/* Sort & Filter Controls */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* Quick Filter Tabs */}
+          {/* Dynamic Category Filter Tabs */}
           <div
             role="tablist"
-            aria-label="Filtra catalogo"
+            aria-label="Filter catalog"
             className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F4] border border-[#E7E5E4] overflow-x-auto max-w-full"
           >
-            {FILTER_TABS.map((tab) => {
+            {filterTabs.map((tab) => {
               const isActive =
-                !activeMacroCategory && !activeSubFilter && activeTab === tab.id;
+                !activeMacroCategory &&
+                !activeSubFilter &&
+                ((tab.categoryId && activeCategoryId === tab.categoryId) ||
+                  (!activeCategoryId && activeTab === tab.id));
+
               return (
                 <button
-                  key={tab.id}
+                  key={tab.categoryId || tab.id}
                   type="button"
                   role="tab"
-                  aria-selected={isActive}
-                  onClick={() => onChangeTab(tab.id)}
+                  aria-selected={Boolean(isActive)}
+                  onClick={() => onChangeTab(tab.id, tab.categoryId)}
                   className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap shrink-0 ${
                     isActive
                       ? 'bg-white text-[#1C1917] shadow-sm'
@@ -112,7 +127,7 @@ export function CatalogSection({
           <div className="relative inline-flex items-center">
             <ArrowUpDown className="w-3.5 h-3.5 text-[#57534E] absolute left-3 pointer-events-none" />
             <label htmlFor="catalog-sort" className="sr-only">
-              Ordina prodotti
+              Sort products
             </label>
             <select
               id="catalog-sort"
@@ -120,26 +135,24 @@ export function CatalogSection({
               onChange={(e) => onChangeSort(e.target.value as SortOption)}
               className="pl-8 pr-4 py-2 rounded-xl bg-white border border-[#E7E5E4] text-xs sm:text-sm font-medium text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#F97316]/25 focus:border-[#F97316]"
             >
-              <option value="popular">Più popolari</option>
-              <option value="price-asc">Prezzo: crescente</option>
-              <option value="price-desc">Prezzo: decrescente</option>
-              <option value="rating">Valutazione più alta</option>
+              <option value="popular">Most Popular</option>
+              <option value="price-asc">Price: Low to High</option>
+              <option value="price-desc">Price: High to Low</option>
+              <option value="rating">Highest Rated</option>
             </select>
           </div>
         </div>
       </div>
 
-      {/* Active Contextual Filter Strip (from Mega Menu or Search) */}
+      {/* Active Contextual Filter Strip */}
       {hasExtraFilter && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white border border-[#E7E5E4]">
           <div className="text-sm text-[#57534E] flex flex-wrap items-center gap-2">
-            <span>Filtro attivo:</span>
-            {activeMacroCategory && (
-              <strong className="text-[#1C1917]">
-                {MACRO_LABELS[activeMacroCategory]}
-              </strong>
+            <span>Active filter:</span>
+            {activeCategoryName && (
+              <strong className="text-[#1C1917]">{activeCategoryName}</strong>
             )}
-            {activeSubFilter && activeSubFilter !== 'IN_OFFERTA' && (
+            {activeSubFilter && activeSubFilter !== 'ON_SALE' && (
               <>
                 <span aria-hidden="true">/</span>
                 <strong className="text-[#F97316]">{activeSubFilter}</strong>
@@ -149,7 +162,7 @@ export function CatalogSection({
               <>
                 <span aria-hidden="true">·</span>
                 <span>
-                  Ricerca:{' '}
+                  Search:{' '}
                   <strong className="text-[#1C1917]">&ldquo;{searchQuery}&rdquo;</strong>
                 </span>
               </>
@@ -161,7 +174,7 @@ export function CatalogSection({
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#F97316] hover:text-[#EA580C] whitespace-nowrap"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Mostra tutto</span>
+            <span>Show All</span>
           </button>
         </div>
       )}
@@ -188,17 +201,17 @@ export function CatalogSection({
         <div className="rounded-2xl bg-white border border-[#E7E5E4] p-12 text-center max-w-lg mx-auto">
           <SearchX className="w-10 h-10 text-[#78716C] mx-auto mb-3" />
           <h3 className="font-display text-lg font-bold text-[#1C1917]">
-            Nessun articolo corrisponde ai filtri
+            No products found
           </h3>
           <p className="text-sm text-[#57534E] mt-1 mb-5">
-            Prova a rimuovere i filtri attivi o cerca un altro termine nel catalogo.
+            Try clearing your active filters or searching for a different keyword.
           </p>
           <button
             type="button"
             onClick={onResetFilters}
             className="px-5 py-2.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold transition-colors"
           >
-            Ripristina catalogo completo
+            Reset Filters
           </button>
         </div>
       ) : (

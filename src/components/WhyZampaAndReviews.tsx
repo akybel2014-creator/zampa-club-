@@ -4,20 +4,20 @@ import { VERIFIED_REVIEWS } from '../data/mockProducts';
 export function WhyZampaAndReviews() {
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
-      {/* Perché scegliere Zampa Club */}
+      {/* Why Choose Zampa Club */}
       <div className="rounded-2xl bg-white border border-[#E7E5E4] p-6 sm:p-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           <div className="lg:col-span-5 space-y-3">
             <div className="text-xs font-bold uppercase tracking-wider text-[#0D9488]">
-              Il Metodo Zampa Club
+              The Zampa Club Standard
             </div>
             <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#1C1917] tracking-tight text-balance">
-              Perché scegliere Zampa Club per il tuo animale
+              Why pet parents choose Zampa Club
             </h2>
             <p className="text-sm sm:text-base text-[#57534E] leading-relaxed">
-              Non siamo un elenco infinito di oggetti tutti uguali: selezioniamo solo
-              accessori provati nella vita reale, con materiali durevoli e sicuri per chi
-              vive in casa con noi.
+              We don&apos;t stock an overwhelming wall of lookalike gadgets. Every bed,
+              harness, and smart feeder is vetted for real-life durability, pet-safe
+              materials, and effortless daily cleaning.
             </p>
           </div>
 
@@ -25,23 +25,23 @@ export function WhyZampaAndReviews() {
             {[
               {
                 icon: Award,
-                title: 'Selezione curata da Pet Lover',
-                body: 'Ogni cuccia, pettorina e dispositivo tech viene valutato per ergonomia, sicurezza dei materiali e facilità di pulizia.',
+                title: 'Curated by Pet Lovers',
+                body: 'Every product is evaluated for ergonomics, chew-safe finishes, and washable fabrics.',
               },
               {
                 icon: Truck,
-                title: 'Ordini tracciati e trasparenti',
-                body: 'Spedizione gratuita sopra i 39€ con codice di monitoraggio inviato via email fino alla consegna.',
+                title: 'Tracked & Transparent Delivery',
+                body: 'Free shipping on orders over $39 with automated tracking updates straight to your inbox.',
               },
               {
                 icon: ShieldCheck,
-                title: 'Garanzia di reso 30 giorni',
-                body: 'Taglia sbagliata o cambio idea? Il nostro supporto italiano gestisce sostituzioni e resi in modo semplice.',
+                title: '30-Day Hassle-Free Returns',
+                body: 'Wrong harness size or change of mind? Our support team makes exchanges simple.',
               },
               {
                 icon: CheckCircle2,
-                title: 'Varianti chiare su misura',
-                body: 'Guide taglie reali e varianti colore pronte al checkout WooCommerce senza sorprese.',
+                title: 'Exact Fit & Option Sizing',
+                body: 'Clear size and color variations mapped directly to WooCommerce checkout.',
               },
             ].map((item) => {
               const Icon = item.icon;
@@ -62,16 +62,16 @@ export function WhyZampaAndReviews() {
         </div>
       </div>
 
-      {/* Recensioni Verificate */}
+      {/* Verified Customer Reviews */}
       <div>
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-6">
           <div>
             <h2 className="font-display text-2xl font-bold text-[#1C1917] tracking-tight">
-              Cosa dicono i proprietari di cani e gatti
+              What dog & cat parents are saying
             </h2>
             <p className="text-sm text-[#57534E] mt-0.5">
-              Valutazione media <strong className="text-[#1C1917] tabular-nums">4,9 / 5</strong>{' '}
-              su oltre 1.200 acquisti verificati
+              Rated <strong className="text-[#1C1917] tabular-nums">4.9 / 5</strong>{' '}
+              across 1,200+ verified orders
             </p>
           </div>
         </div>
@@ -84,7 +84,7 @@ export function WhyZampaAndReviews() {
             >
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-0.5" aria-label={`${rev.rating} su 5 stelle`}>
+                  <div className="flex items-center gap-0.5" aria-label={`${rev.rating} out of 5 stars`}>
                     {Array.from({ length: rev.rating }).map((_, idx) => (
                       <Star
                         key={idx}
@@ -94,7 +94,7 @@ export function WhyZampaAndReviews() {
                   </div>
                   <span className="text-xs font-medium text-[#0D9488] flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Acquisto verificato
+                    Verified Buyer
                   </span>
                 </div>
 
@@ -112,7 +112,7 @@ export function WhyZampaAndReviews() {
                   {rev.author} · <span className="font-normal text-[#57534E]">{rev.city}</span>
                 </div>
                 <div className="text-xs text-[#78716C]">
-                  Con {rev.petName} ({rev.petType}) · {rev.productPurchased}
+                  With {rev.petName} ({rev.petType}) · {rev.productPurchased}
                 </div>
               </div>
             </article>

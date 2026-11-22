@@ -1,11 +1,34 @@
 import { isWooCommerceConfigured, WOOCOMMERCE_CONFIG } from '../config/woocommerce';
+import { MEGA_CATEGORIES, STATIC_WOO_CATEGORIES } from '../data/categories';
 import { MOCK_PRODUCTS } from '../data/mockProducts';
-import { CartItem, MacroCategorySlug, Product, ProductVariation } from '../types/shop';
+import {
+  CartItem,
+  MacroCategorySlug,
+  MegaCategory,
+  MegaCategoryColumn,
+  Product,
+  ProductVariation,
+  WooCategory,
+} from '../types/shop';
 
 export interface CatalogFetchResult {
   products: Product[];
   source: 'woocommerce' | 'fallback';
   message?: string;
+}
+
+export interface CategoriesFetchResult {
+  categories: WooCategory[];
+  source: 'woocommerce' | 'fallback';
+}
+
+interface WooApiCategory {
+  id: number;
+  name: string;
+  slug: string;
+  parent: number;
+  count: number;
+  image?: { src?: string } | null;
 }
 
 interface WooApiVariation {
@@ -44,38 +67,49 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function inferIconName(slug: string, name: string): MegaCategory['iconName'] {
+  const s = `${slug} ${name}`.toLowerCase();
+  if (s.includes('cat') || s.includes('gatt')) return 'Cat';
+  if (s.includes('travel') || s.includes('carrier') || s.includes('viagg') || s.includes('trasp')) {
+    return 'Luggage';
+  }
+  if (s.includes('groom') || s.includes('care') || s.includes('cur') || s.includes('toelett')) {
+    return 'Sparkles';
+  }
+  if (s.includes('tech') || s.includes('smart') || s.includes('wifi')) return 'Cpu';
+  if (
+    s.includes('small') ||
+    s.includes('rabbit') ||
+    s.includes('bird') ||
+    s.includes('piccol') ||
+    s.includes('conigl')
+  ) {
+    return 'Rabbit';
+  }
+  if (s.includes('deal') || s.includes('sale') || s.includes('offert')) return 'Tag';
+  if (s.includes('new') || s.includes('novit')) return 'Star';
+  return 'Dog';
+}
+
 function mapCategorySlug(categories: { slug: string; name: string }[]): {
   slug: MacroCategorySlug;
   label: string;
 } {
-  for (const cat of categories) {
-    const s = `${cat.slug} ${cat.name}`.toLowerCase();
-    if (s.includes('gatt') || s.includes('cat')) {
-      return { slug: 'gatti', label: cat.name || 'Gatti' };
-    }
-    if (s.includes('viagg') || s.includes('trasp') || s.includes('travel')) {
-      return { slug: 'viaggio-trasporto', label: cat.name || 'Viaggio & Trasporto' };
-    }
-    if (s.includes('cur') || s.includes('toelett') || s.includes('groom')) {
-      return { slug: 'cura-toelettatura', label: cat.name || 'Cura & Toelettatura' };
-    }
-    if (s.includes('tech') || s.includes('smart') || s.includes('wifi')) {
-      return { slug: 'smart-pet-tech', label: cat.name || 'Smart Pet Tech' };
-    }
-    if (
-      s.includes('piccol') ||
-      s.includes('conigl') ||
-      s.includes('roditor') ||
-      s.includes('uccell')
-    ) {
-      return { slug: 'piccoli-animali', label: cat.name || 'Piccoli Animali' };
-    }
-    if (s.includes('can') || s.includes('dog')) {
-      return { slug: 'cani', label: cat.name || 'Cani' };
-    }
-  }
   const first = categories[0];
-  return { slug: 'cani', label: first?.name || 'Cani' };
+  if (!first) return { slug: 'dogs', label: 'All Pets' };
+  return {
+    slug: first.slug,
+    label: decodeHtmlEntities(first.name),
+  };
 }
 
 function parsePrice(val: string | undefined): number {
@@ -96,11 +130,18 @@ function mapWooProductToStoreProduct(
   const effectiveRegular =
     regularPrice > effectivePrice ? regularPrice : undefined;
 
-  const mappedCat = mapCategorySlug(wp.categories || []);
+  const cleanCategories = (wp.categories || []).map((c) => ({
+    id: c.id,
+    name: decodeHtmlEntities(c.name),
+    slug: c.slug,
+  }));
+  const mappedCat = mapCategorySlug(cleanCategories);
 
   let variations: ProductVariation[];
+  let hasVariations = false;
 
   if (fetchedVariations && fetchedVariations.length > 0) {
+    hasVariations = true;
     variations = fetchedVariations.map((v) => {
       const vSale = parsePrice(v.sale_price);
       const vCurr = parsePrice(v.price);
@@ -114,7 +155,7 @@ function mapWooProductToStoreProduct(
 
       return {
         variation_id: v.id,
-        label: labelParts.length > 0 ? labelParts.join(' · ') : `Variante #${v.id}`,
+        label: labelParts.length > 0 ? labelParts.join(' · ') : `Option #${v.id}`,
         size: v.attributes?.[0]?.option,
         color: v.attributes?.[1]?.option,
         price: vEffective,
@@ -126,6 +167,7 @@ function mapWooProductToStoreProduct(
   } else {
     const firstAttr = wp.attributes?.[0];
     if (firstAttr && firstAttr.options.length > 0 && wp.variations && wp.variations.length > 0) {
+      hasVariations = true;
       variations = firstAttr.options.map((opt, idx) => ({
         variation_id: wp.variations?.[idx] || wp.id,
         label: `${firstAttr.name}: ${opt}`,
@@ -136,6 +178,7 @@ function mapWooProductToStoreProduct(
         in_stock: true,
       }));
     } else {
+      hasVariations = false;
       variations = [
         {
           variation_id: wp.id,
@@ -163,28 +206,33 @@ function mapWooProductToStoreProduct(
   return {
     id: wp.id,
     slug: wp.slug,
-    name: wp.name,
+    name: decodeHtmlEntities(wp.name),
     brand: 'Zampa Club',
+    categoryIds: cleanCategories.map((c) => c.id),
+    categories: cleanCategories,
     categorySlug: mappedCat.slug,
     categoryLabel: mappedCat.label,
-    subcategories: (wp.categories || []).map((c) => c.name),
+    subcategories: cleanCategories.map((c) => c.name),
     price: minVariationPrice || effectivePrice,
     regular_price: matchingVar.regular_price ?? effectiveRegular,
     rating: parseFloat(wp.average_rating || '4.8') || 4.8,
     reviews_count: wp.rating_count || 0,
     sales_count: wp.total_sales || 0,
     short_description:
-      stripHtml(wp.short_description || '') ||
-      stripHtml(wp.description || '').slice(0, 140) ||
-      'Prodotto selezionato su Zampa Club.',
+      decodeHtmlEntities(stripHtml(wp.short_description || '')) ||
+      decodeHtmlEntities(stripHtml(wp.description || '').slice(0, 140)) ||
+      'Curated pet product from Zampa Club.',
     description:
-      stripHtml(wp.description || '') ||
-      stripHtml(wp.short_description || '') ||
-      'Accessorio per animali domestici disponibile su Zampa Club.',
+      decodeHtmlEntities(stripHtml(wp.description || '')) ||
+      decodeHtmlEntities(stripHtml(wp.short_description || '')) ||
+      'Premium pet accessory available at Zampa Club.',
     specs: [
-      { label: 'ID WooCommerce', value: `#${wp.id}` },
-      { label: 'Categorie', value: (wp.categories || []).map((c) => c.name).join(', ') || 'Pet' },
-      { label: 'Spedizione', value: 'Tracciata in tutta Italia' },
+      { label: 'Product ID', value: `#${wp.id}` },
+      {
+        label: 'Categories',
+        value: cleanCategories.map((c) => c.name).join(', ') || 'Pets',
+      },
+      { label: 'Shipping', value: 'Tracked US delivery' },
     ],
     images:
       uniqueImages.length > 0
@@ -192,22 +240,176 @@ function mapWooProductToStoreProduct(
         : ['/src/assets/images/prod_cuccia_nuvola_1795364644235.jpg'],
     variations,
     default_variation_id: variations[0].variation_id,
+    hasVariations,
   };
 }
 
 /**
- * Recupera i prodotti reali tramite:
- * GET https://zampaclub.it/wp-json/wc/v3/products?per_page=20&status=publish
- * con autenticazione consumer_key e consumer_secret come query params.
- * Se le chiavi API non sono ancora inserite o la richiesta fallisce, utilizza
- * automaticamente il catalogo curato di fallback.
+ * Fetches dynamic product categories from WooCommerce:
+ * GET ${WP_STORE_URL}/wp-json/wc/v3/products/categories?per_page=100&hide_empty=true
+ * Falls back to static English categories if unconfigured or unreachable.
  */
-export async function fetchCatalogProducts(): Promise<CatalogFetchResult> {
+export async function fetchWooCategories(): Promise<CategoriesFetchResult> {
   if (!isWooCommerceConfigured()) {
     return {
-      products: MOCK_PRODUCTS,
+      categories: STATIC_WOO_CATEGORIES,
       source: 'fallback',
-      message: 'Catalogo locale attivo (inserisci Consumer Key e Secret in src/config/woocommerce.ts).',
+    };
+  }
+
+  try {
+    const baseUrl = WOOCOMMERCE_CONFIG.WP_STORE_URL.replace(/\/+$/, '');
+    const endpoint = new URL(`${baseUrl}/wp-json/wc/v3/products/categories`);
+    endpoint.searchParams.set('per_page', '100');
+    endpoint.searchParams.set('hide_empty', 'true');
+    endpoint.searchParams.set('consumer_key', WOOCOMMERCE_CONFIG.WC_CONSUMER_KEY);
+    endpoint.searchParams.set('consumer_secret', WOOCOMMERCE_CONFIG.WC_CONSUMER_SECRET);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    const response = await fetch(endpoint.toString(), {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const rawCats = (await response.json()) as WooApiCategory[];
+    if (!Array.isArray(rawCats) || rawCats.length === 0) {
+      return {
+        categories: STATIC_WOO_CATEGORIES,
+        source: 'fallback',
+      };
+    }
+
+    const mapped: WooCategory[] = rawCats
+      .filter((c) => c.slug !== 'uncategorized')
+      .map((c) => ({
+        id: c.id,
+        name: decodeHtmlEntities(c.name),
+        slug: c.slug,
+        parent: c.parent || 0,
+        count: c.count || 0,
+        image: c.image?.src || undefined,
+      }));
+
+    if (mapped.length === 0) {
+      return {
+        categories: STATIC_WOO_CATEGORIES,
+        source: 'fallback',
+      };
+    }
+
+    return {
+      categories: mapped,
+      source: 'woocommerce',
+    };
+  } catch {
+    return {
+      categories: STATIC_WOO_CATEGORIES,
+      source: 'fallback',
+    };
+  }
+}
+
+/**
+ * Builds Mega Menu categories dynamically from WooCommerce categories.
+ * If source is fallback, returns the curated static MEGA_CATEGORIES.
+ */
+export function buildMegaCategoriesFromWoo(
+  wooCategories: WooCategory[],
+  source: 'woocommerce' | 'fallback',
+  products: Product[]
+): MegaCategory[] {
+  if (source !== 'woocommerce' || wooCategories.length === 0) {
+    return MEGA_CATEGORIES;
+  }
+
+  const parents = wooCategories.filter((c) => c.parent === 0);
+  const topCategories = parents.length > 0 ? parents : wooCategories;
+
+  return topCategories.slice(0, 8).map((cat) => {
+    const children = wooCategories.filter((c) => c.parent === cat.id);
+    const matchingProducts = products.filter((p) => p.categoryIds.includes(cat.id));
+
+    let columns: MegaCategoryColumn[];
+
+    if (children.length > 0) {
+      // Distribute subcategories evenly across up to 3 columns
+      const colBuckets: MegaCategoryColumn[] = [
+        { heading: 'Collections', links: [] },
+        { heading: 'Essentials', links: [] },
+        { heading: 'More in ' + cat.name, links: [] },
+      ];
+      children.forEach((child, idx) => {
+        colBuckets[idx % 3].links.push({
+          label: `${child.name} (${child.count})`,
+          filterTerm: child.name,
+          categoryId: child.id,
+          categorySlug: child.slug,
+        });
+      });
+      columns = colBuckets.filter((b) => b.links.length > 0);
+    } else {
+      columns = [
+        {
+          heading: cat.name,
+          links: [
+            {
+              label: `All ${cat.name} (${cat.count})`,
+              filterTerm: cat.name,
+              categoryId: cat.id,
+              categorySlug: cat.slug,
+            },
+          ],
+        },
+        {
+          heading: 'Highlights',
+          links: matchingProducts.slice(0, 3).map((p) => ({
+            label: p.name,
+            filterTerm: cat.name,
+            categoryId: cat.id,
+            categorySlug: cat.slug,
+          })),
+        },
+      ].filter((col) => col.links.length > 0);
+    }
+
+    return {
+      id: cat.id,
+      slug: cat.slug,
+      name: cat.name,
+      tagline: `${cat.count} ${cat.count === 1 ? 'item' : 'items'} in ${cat.name}`,
+      count: cat.count,
+      image: cat.image,
+      iconName: inferIconName(cat.slug, cat.name),
+      columns,
+      featuredProductId: matchingProducts[0]?.id,
+    };
+  });
+}
+
+/**
+ * Fetches live products from WooCommerce REST API v3:
+ * GET https://zampaclub.it/wp-json/wc/v3/products?per_page=20&status=publish
+ * Optionally filters by category ID (?category=...) when provided.
+ */
+export async function fetchCatalogProducts(
+  categoryId?: number
+): Promise<CatalogFetchResult> {
+  if (!isWooCommerceConfigured()) {
+    const filtered = categoryId
+      ? MOCK_PRODUCTS.filter((p) => p.categoryIds.includes(categoryId))
+      : MOCK_PRODUCTS;
+    return {
+      products: filtered,
+      source: 'fallback',
+      message: 'Local catalog active (configure Consumer Key & Secret in src/config/woocommerce.ts).',
     };
   }
 
@@ -216,6 +418,9 @@ export async function fetchCatalogProducts(): Promise<CatalogFetchResult> {
     const endpoint = new URL(`${baseUrl}/wp-json/wc/v3/products`);
     endpoint.searchParams.set('per_page', '20');
     endpoint.searchParams.set('status', 'publish');
+    if (categoryId) {
+      endpoint.searchParams.set('category', String(categoryId));
+    }
     endpoint.searchParams.set('consumer_key', WOOCOMMERCE_CONFIG.WC_CONSUMER_KEY);
     endpoint.searchParams.set('consumer_secret', WOOCOMMERCE_CONFIG.WC_CONSUMER_SECRET);
 
@@ -234,18 +439,27 @@ export async function fetchCatalogProducts(): Promise<CatalogFetchResult> {
     }
 
     const rawProducts = (await response.json()) as WooApiProduct[];
-    if (!Array.isArray(rawProducts) || rawProducts.length === 0) {
+    if (!Array.isArray(rawProducts)) {
+      throw new Error('Invalid products response');
+    }
+
+    if (rawProducts.length === 0) {
+      if (categoryId) {
+        return {
+          products: [],
+          source: 'woocommerce',
+        };
+      }
       return {
         products: MOCK_PRODUCTS,
         source: 'fallback',
-        message: 'Nessun prodotto pubblicato trovato su WooCommerce.',
+        message: 'No published products found on WooCommerce.',
       };
     }
 
-    // Recupera le varianti reali per i prodotti variabili
     const variationsByProductId = new Map<number, WooApiVariation[]>();
     const variableProducts = rawProducts.filter(
-      (p) => (p.type === 'variable' || (p.variations && p.variations.length > 0))
+      (p) => p.type === 'variable' || (p.variations && p.variations.length > 0)
     );
 
     if (variableProducts.length > 0) {
@@ -276,18 +490,21 @@ export async function fetchCatalogProducts(): Promise<CatalogFetchResult> {
       source: 'woocommerce',
     };
   } catch {
+    const filtered = categoryId
+      ? MOCK_PRODUCTS.filter((p) => p.categoryIds.includes(categoryId))
+      : MOCK_PRODUCTS;
     return {
-      products: MOCK_PRODUCTS,
+      products: filtered,
       source: 'fallback',
-      message: 'Connessione WooCommerce non raggiungibile: attivo fallback locale.',
+      message: 'WooCommerce API unreachable: local fallback catalog active.',
     };
   }
 }
 
 /**
- * Costruisce l'URL di pagamento reale verso WooCommerce:
- * https://zampaclub.it/pagamento/?add-to-cart=ID1:QTA1,ID2:QTA2
- * usando l'ID della variante selezionata (variation_id) se presente, altrimenti l'ID del prodotto.
+ * Builds the WooCommerce checkout URL:
+ * https://zampaclub.it/pagamento/?add-to-cart=ID1:QTY1,ID2:QTY2
+ * Uses variation_id when a variation is selected, otherwise product_id.
  */
 export function buildWooCommerceCheckoutUrl(items: CartItem[]): {
   url: string;
@@ -295,12 +512,19 @@ export function buildWooCommerceCheckoutUrl(items: CartItem[]): {
   payloadSummary: { name: string; variationLabel: string; targetId: number; qty: number }[];
 } {
   const baseUrl = WOOCOMMERCE_CONFIG.WP_STORE_URL.replace(/\/+$/, '');
-  const payloadSummary = items.map((item) => ({
-    name: item.product.name,
-    variationLabel: item.variation.label,
-    targetId: item.variation?.variation_id ? item.variation.variation_id : item.product.id,
-    qty: item.quantity,
-  }));
+  const payloadSummary = items.map((item) => {
+    const hasVariationId =
+      item.product.hasVariations !== false &&
+      Boolean(item.variation?.variation_id) &&
+      item.variation.variation_id !== item.product.id;
+
+    return {
+      name: item.product.name,
+      variationLabel: item.variation.label,
+      targetId: hasVariationId ? item.variation.variation_id : item.product.id,
+      qty: item.quantity,
+    };
+  });
 
   if (items.length === 0) {
     return {

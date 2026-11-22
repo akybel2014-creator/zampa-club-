@@ -1,5 +1,6 @@
 import { Check, ShoppingBag, Star } from 'lucide-react';
 import { useState } from 'react';
+import { formatUsd } from '../config/woocommerce';
 import { Product } from '../types/shop';
 import { ResilientImage } from './ResilientImage';
 
@@ -52,7 +53,6 @@ export function ProductCard({
 
       {/* Card Body */}
       <div className="p-4 sm:p-5 flex-1 flex flex-col">
-        {/* Clean unboxed category + variants metadata */}
         <div className="flex items-center justify-between gap-2 text-xs text-[#57534E]">
           <span className="uppercase tracking-wider font-semibold text-[#78716C] truncate">
             {product.categoryLabel}
@@ -78,10 +78,9 @@ export function ProductCard({
           {product.short_description}
         </p>
 
-        {/* Unboxed variant summary */}
         <div className="mt-2.5 text-xs text-[#78716C]">
           {product.variations.length > 1
-            ? `${product.variations.length} varianti disponibili`
+            ? `${product.variations.length} options available`
             : product.variations[0]?.label}
         </div>
 
@@ -89,11 +88,11 @@ export function ProductCard({
         <div className="mt-auto pt-4 flex items-center justify-between gap-3 border-t border-[#F5F5F4]">
           <div className="flex items-baseline gap-2">
             <span className="text-lg font-bold text-[#1C1917] tabular-nums">
-              {product.price.toFixed(2).replace('.', ',')}€
+              {formatUsd(product.price)}
             </span>
             {product.regular_price && (
               <span className="text-xs text-[#78716C] line-through tabular-nums">
-                {product.regular_price.toFixed(2).replace('.', ',')}€
+                {formatUsd(product.regular_price)}
               </span>
             )}
           </div>
@@ -110,12 +109,12 @@ export function ProductCard({
             {justAdded ? (
               <>
                 <Check className="w-3.5 h-3.5" />
-                <span>Aggiunto</span>
+                <span>Added</span>
               </>
             ) : (
               <>
                 <ShoppingBag className="w-3.5 h-3.5" />
-                <span>Aggiungi</span>
+                <span>Add to Cart</span>
               </>
             )}
           </button>

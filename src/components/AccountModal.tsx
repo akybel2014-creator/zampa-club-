@@ -10,19 +10,23 @@ interface AccountModalProps {
   isOpen: boolean;
   onClose: () => void;
   sourceMode: 'woocommerce' | 'fallback';
+  categorySourceMode: 'woocommerce' | 'fallback';
   productCount: number;
+  categoryCount: number;
 }
 
 export function AccountModal({
   isOpen,
   onClose,
   sourceMode,
+  categorySourceMode,
   productCount,
+  categoryCount,
 }: AccountModalProps) {
-  const [activeTab, setActiveTab] = useState<'profilo' | 'integrazione'>('profilo');
+  const [activeTab, setActiveTab] = useState<'profile' | 'integration'>('profile');
   const [copied, setCopied] = useState(false);
-  const [petName, setPetName] = useState('Brando');
-  const [petType, setPetType] = useState<'Cane' | 'Gatto' | 'Piccoli Animali'>('Cane');
+  const [petName, setPetName] = useState('Cooper');
+  const [petType, setPetType] = useState<'Dog' | 'Cat' | 'Small Pet'>('Dog');
   const [savedNotice, setSavedNotice] = useState(false);
 
   if (!isOpen) return null;
@@ -64,10 +68,10 @@ export function AccountModal({
             </div>
             <div>
               <h2 id="account-modal-title" className="font-display text-lg font-bold text-[#1C1917]">
-                Area Clienti & Connessione Store
+                Account & Store Connection
               </h2>
               <p className="text-xs text-[#57534E]">
-                Profilo Pet Lover e stato ponte WooCommerce + CJ Dropshipping
+                Pet Lover profile & WooCommerce REST API status
               </p>
             </div>
           </div>
@@ -75,7 +79,7 @@ export function AccountModal({
             type="button"
             onClick={onClose}
             className="w-9 h-9 rounded-lg flex items-center justify-center text-[#57534E] hover:bg-[#F5F5F4] hover:text-[#1C1917] transition-colors"
-            aria-label="Chiudi finestra account"
+            aria-label="Close account modal"
           >
             <X className="w-5 h-5" />
           </button>
@@ -84,36 +88,36 @@ export function AccountModal({
         <div className="px-6 pt-3 border-b border-[#E7E5E4] flex gap-2 bg-[#FAFAF9]">
           <button
             type="button"
-            onClick={() => setActiveTab('profilo')}
+            onClick={() => setActiveTab('profile')}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'profilo'
+              activeTab === 'profile'
                 ? 'border-[#F97316] text-[#1C1917] bg-white'
                 : 'border-transparent text-[#57534E] hover:text-[#1C1917]'
             }`}
           >
-            Il mio Profilo Pet
+            My Pet Profile
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('integrazione')}
+            onClick={() => setActiveTab('integration')}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
-              activeTab === 'integrazione'
+              activeTab === 'integration'
                 ? 'border-[#F97316] text-[#1C1917] bg-white'
                 : 'border-transparent text-[#57534E] hover:text-[#1C1917]'
             }`}
           >
-            Configurazione WooCommerce
+            WooCommerce Connection
           </button>
         </div>
 
         <div className="p-6 overflow-y-auto space-y-6">
-          {activeTab === 'profilo' ? (
+          {activeTab === 'profile' ? (
             <>
               <form onSubmit={handleSaveProfile} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-[#57534E] mb-1.5">
-                      Nome del tuo animale
+                      Pet&apos;s Name
                     </label>
                     <input
                       type="text"
@@ -124,18 +128,18 @@ export function AccountModal({
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-[#57534E] mb-1.5">
-                      Compagno di avventure
+                      Pet Type
                     </label>
                     <select
                       value={petType}
                       onChange={(e) =>
-                        setPetType(e.target.value as 'Cane' | 'Gatto' | 'Piccoli Animali')
+                        setPetType(e.target.value as 'Dog' | 'Cat' | 'Small Pet')
                       }
                       className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm text-[#1C1917] bg-white focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 focus:border-[#F97316]"
                     >
-                      <option value="Cane">Cane</option>
-                      <option value="Gatto">Gatto</option>
-                      <option value="Piccoli Animali">Piccoli Animali</option>
+                      <option value="Dog">Dog</option>
+                      <option value="Cat">Cat</option>
+                      <option value="Small Pet">Small Pet</option>
                     </select>
                   </div>
                 </div>
@@ -145,12 +149,12 @@ export function AccountModal({
                     type="submit"
                     className="px-5 py-2.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold transition-colors"
                   >
-                    Salva Preferenze
+                    Save Preferences
                   </button>
                   {savedNotice && (
                     <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[#0D9488]">
                       <CheckCircle2 className="w-4 h-4" />
-                      Preferenze aggiornate per {petName}
+                      Saved preferences for {petName}
                     </span>
                   )}
                 </div>
@@ -160,22 +164,21 @@ export function AccountModal({
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-[#1C1917] flex items-center gap-2">
                     <Package className="w-4 h-4 text-[#0D9488]" />
-                    Gestione Ordini & Resi
+                    Orders & Returns
                   </h3>
                   <a
-                    href={`${WOOCOMMERCE_CONFIG.WP_STORE_URL}/mio-account/`}
+                    href={`${WOOCOMMERCE_CONFIG.WP_STORE_URL}/my-account/`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 text-xs font-semibold text-[#F97316] hover:underline"
                   >
-                    Accedi su WordPress
+                    Sign in on Store
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
                 <p className="text-sm text-[#57534E] leading-relaxed">
-                  Gli ordini completati al checkout vengono gestiti dal tuo account WooCommerce
-                  collegato a CJ Dropshipping, con codice di tracciamento inviato automaticamente
-                  via email.
+                  Orders placed at checkout are fulfilled through your WooCommerce store
+                  connected to CJ Dropshipping, with tracking numbers emailed automatically.
                 </p>
               </div>
             </>
@@ -185,21 +188,22 @@ export function AccountModal({
                 <Server className="w-5 h-5 text-[#0D9488] shrink-0 mt-0.5" />
                 <div className="space-y-1 text-sm">
                   <div className="font-semibold text-[#1C1917]">
-                    Origine catalogo attiva:{' '}
+                    Active Catalog Source:{' '}
                     {sourceMode === 'woocommerce'
-                      ? 'API REST WooCommerce Live'
-                      : 'Catalogo Curato Zampa Club (Fallback)'}
+                      ? 'WooCommerce REST API Live'
+                      : 'Curated Fallback Catalog'}
                   </div>
                   <p className="text-[#57534E] text-xs leading-relaxed">
-                    Articoli caricati: <strong className="tabular-nums">{productCount}</strong> ·
-                    URL Store: <span className="font-mono">{WOOCOMMERCE_CONFIG.WP_STORE_URL}</span>
+                    Products loaded: <strong className="tabular-nums">{productCount}</strong> ·
+                    Categories ({categorySourceMode === 'woocommerce' ? 'Live' : 'Fallback'}):{' '}
+                    <strong className="tabular-nums">{categoryCount}</strong> · Store:{' '}
+                    <span className="font-mono">{WOOCOMMERCE_CONFIG.WP_STORE_URL}</span>
                   </p>
                   {!configured && (
                     <p className="text-xs text-[#57534E] pt-1">
-                      Sostituisci <code className="font-mono text-[#1C1917]">INCOLLA_QUI_LA_TUA_CK</code> e{' '}
-                      <code className="font-mono text-[#1C1917]">INCOLLA_QUI_LA_TUA_CS</code> in{' '}
+                      Replace the read-only API keys in{' '}
                       <code className="font-mono text-[#1C1917]">src/config/woocommerce.ts</code>{' '}
-                      con le tue chiavi REST API (permessi Solo Lettura) di zampaclub.it.
+                      with your WooCommerce Consumer Key &amp; Secret.
                     </p>
                   )}
                 </div>
@@ -209,7 +213,7 @@ export function AccountModal({
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-[#1C1917] flex items-center gap-2">
                     <Code2 className="w-4 h-4 text-[#F97316]" />
-                    Snippet WPCode per Checkout Multi-Prodotto
+                    WPCode Snippet for Multi-Item Checkout
                   </h3>
                   <button
                     type="button"
@@ -217,15 +221,15 @@ export function AccountModal({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E7E5E4] text-xs font-medium text-[#1C1917] hover:bg-[#F5F5F4] transition-colors"
                   >
                     <Copy className="w-3.5 h-3.5" />
-                    {copied ? 'Copiato!' : 'Copia PHP'}
+                    {copied ? 'Copied!' : 'Copy PHP'}
                   </button>
                 </div>
                 <p className="text-xs text-[#57534E] flex items-start gap-1.5">
                   <Info className="w-3.5 h-3.5 text-[#0D9488] shrink-0 mt-0.5" />
                   <span>
-                    Incolla questo snippet in WordPress tramite il plugin gratuito WPCode per
-                    aggiungere più ID prodotto/variante separati da virgola nel checkout
-                    (<code className="font-mono">?add-to-cart=101:1,105:2</code>).
+                    Paste this snippet in WordPress using the free WPCode plugin so
+                    WooCommerce accepts comma-separated product/variation IDs and
+                    quantities (<code className="font-mono">?add-to-cart=101:2,105:1</code>).
                   </span>
                 </p>
                 <pre className="p-3.5 rounded-xl bg-[#1C1917] text-[#FAFAF9] text-xs font-mono overflow-x-auto leading-relaxed">

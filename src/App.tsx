@@ -8,24 +8,34 @@ import { HeroSection } from './components/HeroSection';
 import { ProductModal } from './components/ProductModal';
 import { QuickCategories } from './components/QuickCategories';
 import { WhyZampaAndReviews } from './components/WhyZampaAndReviews';
-import { fetchCatalogProducts } from './services/wooCommerceService';
+import { STATIC_WOO_CATEGORIES } from './data/categories';
+import {
+  buildMegaCategoriesFromWoo,
+  fetchCatalogProducts,
+  fetchWooCategories,
+} from './services/wooCommerceService';
 import {
   CartItem,
   MacroCategorySlug,
   Product,
   ProductVariation,
-  QuickFilterTab,
   SortOption,
+  WooCategory,
 } from './types/shop';
 
 export default function App() {
-  const [products, setProducts] = useState<Product[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [categoryProducts, setCategoryProducts] = useState<Product[] | null>(null);
+  const [wooCategories, setWooCategories] = useState<WooCategory[]>(STATIC_WOO_CATEGORIES);
   const [sourceMode, setSourceMode] = useState<'woocommerce' | 'fallback'>('fallback');
+  const [categorySourceMode, setCategorySourceMode] =
+    useState<'woocommerce' | 'fallback'>('fallback');
   const [loadingCatalog, setLoadingCatalog] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<QuickFilterTab>('tutti');
+  const [activeTab, setActiveTab] = useState<string>('all');
   const [activeMacroCategory, setActiveMacroCategory] =
     useState<MacroCategorySlug | null>(null);
+  const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
   const [activeSubFilter, setActiveSubFilter] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('popular');
@@ -53,42 +63,88 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    fetchCatalogProducts().then((res) => {
-      if (!active) return;
-      setProducts(res.products);
-      setSourceMode(res.source);
-      setLoadingCatalog(false);
-    });
+    Promise.all([fetchCatalogProducts(), fetchWooCategories()]).then(
+      ([prodRes, catRes]) => {
+        if (!active) return;
+        setAllProducts(prodRes.products);
+        setSourceMode(prodRes.source);
+        setWooCategories(catRes.categories);
+        setCategorySourceMode(catRes.source);
+        setLoadingCatalog(false);
+      }
+    );
     return () => {
       active = false;
     };
   }, []);
 
+  // When a live WooCommerce category ID is selected, fetch /wp-json/wc/v3/products?category=...
+  useEffect(() => {
+    if (!activeCategoryId || sourceMode !== 'woocommerce') {
+      setCategoryProducts(null);
+      return;
+    }
+
+    let active = true;
+    fetchCatalogProducts(activeCategoryId).then((res) => {
+      if (!active) return;
+      if (res.source === 'woocommerce') {
+        setCategoryProducts(res.products);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [activeCategoryId, sourceMode]);
+
+  const megaCategories = useMemo(
+    () => buildMegaCategoriesFromWoo(wooCategories, categorySourceMode, allProducts),
+    [wooCategories, categorySourceMode, allProducts]
+  );
+
   const scrollToCatalog = () => {
-    const el = document.getElementById('catalogo-prodotti');
+    const el = document.getElementById('product-catalog');
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
-  const handleSelectCategory = (slug: MacroCategorySlug, subFilter?: string) => {
+  const resolveCategoryId = (
+    slug: MacroCategorySlug,
+    explicitId?: number
+  ): number | null => {
+    if (explicitId) return explicitId;
+    const match = wooCategories.find((c) => c.slug === slug);
+    return match ? match.id : null;
+  };
+
+  const handleSelectCategory = (
+    slug: MacroCategorySlug,
+    subFilter?: string,
+    categoryId?: number
+  ) => {
+    const resolvedId = resolveCategoryId(slug, categoryId);
     setActiveMacroCategory(slug);
+    setActiveCategoryId(resolvedId);
     setActiveSubFilter(subFilter || null);
-    setActiveTab('tutti');
+    setActiveTab('all');
     scrollToCatalog();
   };
 
-  const handleChangeTab = (tab: QuickFilterTab) => {
+  const handleChangeTab = (tabSlug: string, categoryId?: number) => {
     setActiveMacroCategory(null);
     setActiveSubFilter(null);
-    setActiveTab(tab);
+    setActiveCategoryId(categoryId || null);
+    setActiveTab(tabSlug);
   };
 
   const handleResetFilters = () => {
     setActiveMacroCategory(null);
+    setActiveCategoryId(null);
     setActiveSubFilter(null);
-    setActiveTab('tutti');
+    setActiveTab('all');
     setSearchQuery('');
+    setCategoryProducts(null);
   };
 
   const handleAddToCart = (
@@ -147,31 +203,40 @@ export default function App() {
   };
 
   const filteredProducts = useMemo(() => {
-    let list = [...products];
+    let list =
+      activeCategoryId && categoryProducts !== null
+        ? [...categoryProducts]
+        : [...allProducts];
 
-    // Macro category from Mega Menu / Quick Categories / Hero
-    if (activeMacroCategory) {
-      if (activeMacroCategory === 'novita') {
-        list = list.filter((p) => p.is_new);
-      } else if (activeMacroCategory === 'offerte') {
-        list = list.filter((p) => p.regular_price && p.regular_price > p.price);
-      } else {
-        list = list.filter(
-          (p) =>
-            p.categorySlug === activeMacroCategory ||
-            (activeSubFilter && p.subcategories.includes(activeSubFilter))
-        );
-      }
-    } else if (activeTab !== 'tutti') {
-      if (activeTab === 'offerte') {
-        list = list.filter((p) => p.regular_price && p.regular_price > p.price);
-      } else {
-        list = list.filter((p) => p.categorySlug === activeTab);
-      }
+    // Special virtual tabs/categories
+    if (activeMacroCategory === 'new-arrivals') {
+      list = list.filter((p) => p.is_new);
+    } else if (
+      activeMacroCategory === 'deals' ||
+      activeTab === 'deals' ||
+      activeSubFilter === 'ON_SALE'
+    ) {
+      list = list.filter((p) => p.regular_price && p.regular_price > p.price);
+    } else if (activeCategoryId) {
+      // Filter by matching category.id (also keeps categoryProducts if already fetched by category)
+      list = list.filter((p) => p.categoryIds.includes(activeCategoryId));
+    } else if (activeMacroCategory) {
+      list = list.filter(
+        (p) =>
+          p.categorySlug === activeMacroCategory ||
+          p.categories.some((c) => c.slug === activeMacroCategory) ||
+          (activeSubFilter && p.subcategories.includes(activeSubFilter))
+      );
+    } else if (activeTab !== 'all') {
+      list = list.filter(
+        (p) =>
+          p.categorySlug === activeTab ||
+          p.categories.some((c) => c.slug === activeTab)
+      );
     }
 
-    // Subcategory refinement from Mega Menu flyout
-    if (activeSubFilter && activeSubFilter !== 'IN_OFFERTA') {
+    // Subcategory refinement from Mega Menu flyout when no explicit subcategory ID matched
+    if (activeSubFilter && activeSubFilter !== 'ON_SALE') {
       const subLower = activeSubFilter.toLowerCase();
       const subMatches = list.filter((p) =>
         p.subcategories.some((s) => s.toLowerCase() === subLower)
@@ -211,7 +276,9 @@ export default function App() {
 
     return list;
   }, [
-    products,
+    allProducts,
+    categoryProducts,
+    activeCategoryId,
     activeMacroCategory,
     activeTab,
     activeSubFilter,
@@ -227,7 +294,8 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-[#FAFAF9] text-[#1C1917]">
       <Header
-        products={products}
+        products={allProducts}
+        megaCategories={megaCategories}
         cartCount={totalCartCount}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -249,15 +317,20 @@ export default function App() {
         />
 
         <QuickCategories
+          wooCategories={wooCategories}
+          sourceMode={categorySourceMode}
           activeCategorySlug={activeMacroCategory}
-          onSelectCategory={(slug) => handleSelectCategory(slug)}
+          activeCategoryId={activeCategoryId}
+          onSelectCategory={handleSelectCategory}
         />
 
         <CatalogSection
           products={filteredProducts}
+          wooCategories={wooCategories}
           loading={loadingCatalog}
           activeTab={activeTab}
           activeMacroCategory={activeMacroCategory}
+          activeCategoryId={activeCategoryId}
           activeSubFilter={activeSubFilter}
           searchQuery={searchQuery}
           sortBy={sortBy}
@@ -272,7 +345,8 @@ export default function App() {
       </main>
 
       <Footer
-        onSelectCategory={(slug) => handleSelectCategory(slug)}
+        wooCategories={wooCategories}
+        onSelectCategory={handleSelectCategory}
         onOpenAccount={() => setAccountOpen(true)}
       />
 
@@ -298,7 +372,9 @@ export default function App() {
         isOpen={accountOpen}
         onClose={() => setAccountOpen(false)}
         sourceMode={sourceMode}
-        productCount={products.length}
+        categorySourceMode={categorySourceMode}
+        productCount={allProducts.length}
+        categoryCount={wooCategories.length}
       />
     </div>
   );

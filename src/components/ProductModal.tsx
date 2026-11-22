@@ -1,5 +1,6 @@
 import { Check, Minus, Plus, ShieldCheck, ShoppingBag, Star, Truck, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { formatUsd } from '../config/woocommerce';
 import { Product, ProductVariation } from '../types/shop';
 import { ResilientImage } from './ResilientImage';
 
@@ -59,14 +60,15 @@ export function ProductModal({
         {/* Top Modal Bar */}
         <div className="flex items-center justify-between px-5 sm:px-6 py-3.5 border-b border-[#E7E5E4] bg-[#FAFAF9]">
           <div className="text-xs font-medium text-[#57534E] truncate">
-            {product.categoryLabel} / {product.subcategories[0]} · SKU{' '}
+            {product.categoryLabel}
+            {product.subcategories[0] ? ` / ${product.subcategories[0]}` : ''} · SKU{' '}
             <span className="font-mono text-[#1C1917]">{activeVariation.sku}</span>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="w-9 h-9 rounded-lg flex items-center justify-center text-[#57534E] hover:bg-[#E7E5E4]/60 hover:text-[#1C1917] transition-colors shrink-0"
-            aria-label="Chiudi scheda prodotto"
+            aria-label="Close product details"
           >
             <X className="w-5 h-5" />
           </button>
@@ -85,7 +87,7 @@ export function ProductModal({
                 />
                 {discountPercent > 0 && (
                   <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-[#F97316] text-white text-xs font-bold tabular-nums">
-                    Risparmi {discountPercent}%
+                    Save {discountPercent}%
                   </span>
                 )}
               </div>
@@ -105,7 +107,7 @@ export function ProductModal({
                     >
                       <ResilientImage
                         src={img}
-                        alt={`${product.name} vista ${idx + 1}`}
+                        alt={`${product.name} view ${idx + 1}`}
                         className="w-full h-full object-cover"
                       />
                     </button>
@@ -123,7 +125,7 @@ export function ProductModal({
                   </span>
                   <span className="inline-flex items-center gap-1 font-semibold text-[#1C1917] tabular-nums">
                     <Star className="w-3.5 h-3.5 fill-[#F97316] text-[#F97316]" />
-                    {product.rating.toFixed(1)} · {product.reviews_count} recensioni
+                    {product.rating.toFixed(1)} · {product.reviews_count} reviews
                   </span>
                 </div>
 
@@ -136,16 +138,16 @@ export function ProductModal({
 
                 <div className="mt-3 flex items-baseline gap-3">
                   <span className="text-3xl font-bold text-[#1C1917] tabular-nums">
-                    {activePrice.toFixed(2).replace('.', ',')}€
+                    {formatUsd(activePrice)}
                   </span>
                   {activeRegular && (
                     <span className="text-base text-[#78716C] line-through tabular-nums">
-                      {activeRegular.toFixed(2).replace('.', ',')}€
+                      {formatUsd(activeRegular)}
                     </span>
                   )}
                   <span className="text-xs font-semibold text-[#0D9488] flex items-center gap-1">
                     <Check className="w-3.5 h-3.5" />
-                    Disponibile
+                    In Stock
                   </span>
                 </div>
               </div>
@@ -154,14 +156,16 @@ export function ProductModal({
                 {product.description}
               </p>
 
-              {/* Variation Selector (Crucial for CJ Dropshipping size/color variants) */}
+              {/* Variation Selector */}
               <div className="space-y-2.5 pt-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-[#1C1917] uppercase tracking-wider">
-                    Seleziona Variante (Taglia / Colore)
+                    Select Option (Size / Color)
                   </span>
                   <span className="text-[#78716C] font-mono">
-                    ID Variante: #{activeVariation.variation_id}
+                    {product.hasVariations !== false && activeVariation.variation_id !== product.id
+                      ? `Variation #${activeVariation.variation_id}`
+                      : `Product #${product.id}`}
                   </span>
                 </div>
 
@@ -192,7 +196,7 @@ export function ProductModal({
                           </span>
                         </span>
                         <span className="text-sm font-bold text-[#1C1917] tabular-nums shrink-0 ml-3">
-                          {v.price.toFixed(2).replace('.', ',')}€
+                          {formatUsd(v.price)}
                         </span>
                       </button>
                     );
@@ -207,7 +211,7 @@ export function ProductModal({
                     type="button"
                     onClick={() => setQuantity((q) => Math.max(1, q - 1))}
                     className="w-10 h-11 flex items-center justify-center text-[#1C1917] hover:bg-[#E7E5E4]/50 rounded-l-xl"
-                    aria-label="Diminuisci quantità"
+                    aria-label="Decrease quantity"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
@@ -218,7 +222,7 @@ export function ProductModal({
                     type="button"
                     onClick={() => setQuantity((q) => q + 1)}
                     className="w-10 h-11 flex items-center justify-center text-[#1C1917] hover:bg-[#E7E5E4]/50 rounded-r-xl"
-                    aria-label="Aumenta quantità"
+                    aria-label="Increase quantity"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -231,7 +235,7 @@ export function ProductModal({
                 >
                   <ShoppingBag className="w-4 h-4" />
                   <span>
-                    Aggiungi al Carrello · {(activePrice * quantity).toFixed(2).replace('.', ',')}€
+                    Add to Cart · {formatUsd(activePrice * quantity)}
                   </span>
                 </button>
               </div>
@@ -239,7 +243,7 @@ export function ProductModal({
               {/* Specs Table */}
               <div className="border-t border-[#E7E5E4] pt-4 space-y-2">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-[#78716C]">
-                  Dettagli Tecnici
+                  Product Details
                 </h3>
                 <dl className="divide-y divide-[#F5F5F4] text-xs">
                   {product.specs.map((spec) => (
@@ -254,11 +258,11 @@ export function ProductModal({
               <div className="flex flex-wrap items-center gap-4 text-xs text-[#57534E] pt-1">
                 <span className="inline-flex items-center gap-1.5">
                   <Truck className="w-4 h-4 text-[#0D9488]" />
-                  Spedizione gratuita sopra 39€
+                  Free shipping over $39
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-[#0D9488]" />
-                  Reso garantito 30 giorni
+                  30-day easy returns
                 </span>
               </div>
             </div>
