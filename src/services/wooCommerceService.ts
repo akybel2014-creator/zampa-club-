@@ -285,9 +285,9 @@ export async function fetchCatalogProducts(): Promise<CatalogFetchResult> {
 }
 
 /**
- * Costruisce l'URL di checkout reale verso WooCommerce:
- * https://zampaclub.it/checkout/?add-to-cart=ID1:QTA1,ID2:QTA2
- * usando l'ID della variante selezionata se presente, altrimenti l'ID del prodotto.
+ * Costruisce l'URL di pagamento reale verso WooCommerce:
+ * https://zampaclub.it/pagamento/?add-to-cart=ID1:QTA1,ID2:QTA2
+ * usando l'ID della variante selezionata (variation_id) se presente, altrimenti l'ID del prodotto.
  */
 export function buildWooCommerceCheckoutUrl(items: CartItem[]): {
   url: string;
@@ -298,13 +298,13 @@ export function buildWooCommerceCheckoutUrl(items: CartItem[]): {
   const payloadSummary = items.map((item) => ({
     name: item.product.name,
     variationLabel: item.variation.label,
-    targetId: item.variation?.variation_id || item.product.id,
+    targetId: item.variation?.variation_id ? item.variation.variation_id : item.product.id,
     qty: item.quantity,
   }));
 
   if (items.length === 0) {
     return {
-      url: `${baseUrl}/checkout/`,
+      url: `${baseUrl}/pagamento/`,
       isMultiItem: false,
       payloadSummary,
     };
@@ -315,7 +315,7 @@ export function buildWooCommerceCheckoutUrl(items: CartItem[]): {
     .join(',');
 
   return {
-    url: `${baseUrl}/checkout/?add-to-cart=${cartParam}`,
+    url: `${baseUrl}/pagamento/?add-to-cart=${cartParam}`,
     isMultiItem: items.length > 1,
     payloadSummary,
   };

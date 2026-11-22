@@ -52,7 +52,7 @@ export function isWooCommerceConfigured(): boolean {
 /**
  * Snippet PHP consigliato su WordPress (via plugin WPCode) per permettere
  * a WooCommerce di aggiungere uno o più ID prodotto/variante con quantità
- * tramite URL: https://zampaclub.it/checkout/?add-to-cart=ID1:QTA1,ID2:QTA2
+ * tramite URL: https://zampaclub.it/pagamento/?add-to-cart=ID1:QTA1,ID2:QTA2
  */
 export const WPCODE_MULTI_CART_PHP_SNIPPET = `add_action('wp_loaded', function() {
   if (empty($_REQUEST['add-to-cart'])) return;
