@@ -1,0 +1,6 @@
+{
+  "name": "Zampa Club",
+  "description": "Pet boutique ed e-commerce moderno dedicato a prodotti, accessori e tecnologia per cani, gatti e piccoli animali domestici.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
