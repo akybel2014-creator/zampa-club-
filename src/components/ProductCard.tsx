@@ -33,16 +33,16 @@ export function ProductCard({
 
   return (
     <article className="group rounded-2xl bg-white border border-[#E7E5E4] overflow-hidden flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      {/* Product Photo (4:3) */}
+      {/* Product Photo (1:1 square, uncropped studio container) */}
       <button
         type="button"
         onClick={() => onOpenProduct(product)}
-        className="relative aspect-[4/3] w-full bg-[#FAFAF9] overflow-hidden text-left focus-visible:outline-2 focus-visible:outline-[#F97316]"
+        className="relative aspect-square w-full bg-white p-3 border-b border-[#F5F5F4] overflow-hidden flex items-center justify-center text-left focus-visible:outline-2 focus-visible:outline-[#F97316]"
       >
         <ResilientImage
           src={product.images[0]}
           alt={product.name}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          className="w-full h-full object-contain object-center transition-transform duration-300 group-hover:scale-[1.03]"
         />
         {discountPercent > 0 && (
           <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-[#F97316] text-white text-xs font-bold tabular-nums shadow-sm">

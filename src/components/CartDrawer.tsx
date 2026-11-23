@@ -151,11 +151,11 @@ export function CartDrawer({
                   key={item.cartKey}
                   className="flex gap-3.5 pb-4 border-b border-[#F5F5F4] last:border-b-0"
                 >
-                  <div className="w-20 h-16 rounded-xl overflow-hidden border border-[#E7E5E4] bg-[#FAFAF9] shrink-0">
+                  <div className="w-16 h-16 rounded-xl overflow-hidden border border-[#E7E5E4] bg-white p-1 shrink-0">
                     <ResilientImage
                       src={item.product.images[0]}
                       alt={item.product.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   </div>
                   <div className="min-w-0 flex-1 space-y-1">

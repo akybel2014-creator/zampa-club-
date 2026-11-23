@@ -267,11 +267,11 @@ export function Header({
                         }}
                         className="w-full flex items-center gap-3.5 px-4 py-3 hover:bg-[#FAFAF9] text-left transition-colors"
                       >
-                        <div className="w-12 h-10 rounded-lg overflow-hidden border border-[#E7E5E4] shrink-0 bg-[#FAFAF9]">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden border border-[#E7E5E4] shrink-0 bg-white p-1">
                           <ResilientImage
                             src={item.images[0]}
                             alt={item.name}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain"
                           />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -477,11 +477,11 @@ export function Header({
                     {/* Featured Product Card inside Flyout */}
                     {featuredFlyoutProduct && (
                       <div className="rounded-xl border border-[#E7E5E4] bg-[#FAFAF9] p-3.5 flex items-center gap-4">
-                        <div className="w-24 h-18 rounded-lg overflow-hidden border border-[#E7E5E4] shrink-0 bg-white">
+                        <div className="w-20 h-20 rounded-lg overflow-hidden border border-[#E7E5E4] shrink-0 bg-white p-1.5">
                           <ResilientImage
                             src={featuredFlyoutProduct.images[0]}
                             alt={featuredFlyoutProduct.name}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain"
                           />
                         </div>
                         <div className="min-w-0 flex-1">

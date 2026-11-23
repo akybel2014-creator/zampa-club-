@@ -79,11 +79,11 @@ export function ProductModal({
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
             {/* Gallery Left */}
             <div className="md:col-span-6 space-y-3 md:sticky md:top-0">
-              <div className="aspect-[4/3] rounded-2xl overflow-hidden border border-[#E7E5E4] bg-[#FAFAF9] relative">
+              <div className="aspect-square rounded-2xl overflow-hidden border border-[#E7E5E4] bg-white p-4 relative flex items-center justify-center">
                 <ResilientImage
                   src={product.images[selectedImageIdx] || product.images[0]}
                   alt={product.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain object-center"
                 />
                 {discountPercent > 0 && (
                   <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-[#F97316] text-white text-xs font-bold tabular-nums">
@@ -93,13 +93,13 @@ export function ProductModal({
               </div>
 
               {product.images.length > 1 && (
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 overflow-x-auto pb-1">
                   {product.images.map((img, idx) => (
                     <button
                       key={img + idx}
                       type="button"
                       onClick={() => setSelectedImageIdx(idx)}
-                      className={`w-20 h-16 rounded-xl overflow-hidden border-2 transition-all ${
+                      className={`w-16 h-16 shrink-0 rounded-xl overflow-hidden border-2 bg-white p-1 transition-all ${
                         selectedImageIdx === idx
                           ? 'border-[#F97316] shadow-sm'
                           : 'border-[#E7E5E4] opacity-75 hover:opacity-100'
@@ -108,7 +108,7 @@ export function ProductModal({
                       <ResilientImage
                         src={img}
                         alt={`${product.name} view ${idx + 1}`}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                       />
                     </button>
                   ))}

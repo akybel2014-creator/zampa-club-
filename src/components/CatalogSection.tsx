@@ -187,7 +187,7 @@ export function CatalogSection({
               key={i}
               className="rounded-2xl bg-white border border-[#E7E5E4] overflow-hidden animate-pulse"
             >
-              <div className="aspect-[4/3] bg-[#F5F5F4]" />
+              <div className="aspect-square bg-[#F5F5F4]" />
               <div className="p-5 space-y-3">
                 <div className="h-3 w-20 bg-[#E7E5E4] rounded" />
                 <div className="h-5 w-3/4 bg-[#E7E5E4] rounded" />
