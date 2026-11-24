@@ -212,6 +212,80 @@ function buildDevStoreApiFallbackUrl(
   return url.toString();
 }
 
+function sanitizeUrlForDebug(rawUrl: string): string {
+  try {
+    const parsed = new URL(
+      rawUrl,
+      typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+    );
+    const sensitiveParams = [
+      'consumer_key',
+      'consumer_secret',
+      'key',
+      'secret',
+      'token',
+      'password',
+      'auth',
+    ];
+    for (const param of sensitiveParams) {
+      if (parsed.searchParams.has(param)) {
+        parsed.searchParams.set(param, '[REDACTED]');
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return rawUrl.split('?')[0] || 'unknown-url';
+  }
+}
+
+function extractSafeBodySnippet(rawText: string, maxLen = 140): string {
+  if (!rawText) return '';
+  const trimmed = rawText.trim();
+  const looksLikeHtml = /^<!doctype\s+html|^<html[\s>]/i.test(trimmed);
+
+  let cleaned = trimmed
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  cleaned = cleaned
+    .replace(/\b(ck|cs|sk|pk)_[a-zA-Z0-9]{10,}\b/gi, '[REDACTED]')
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9+/=._-]+/gi, '$1 [REDACTED]');
+
+  if (!cleaned && looksLikeHtml) {
+    return '[HTML document]';
+  }
+
+  const prefix = looksLikeHtml ? '[HTML] ' : '';
+  const full = `${prefix}${cleaned}`.trim();
+  if (full.length <= maxLen) return full;
+  return `${full.slice(0, maxLen).trimEnd()}…`;
+}
+
+function buildNonJsonErrorMessage(
+  url: string,
+  status: number,
+  contentType: string,
+  rawBody: string
+): string {
+  const safeUrl = sanitizeUrlForDebug(url);
+  const shortType = contentType ? contentType.split(';')[0].trim() : 'unknown';
+  const excerpt = extractSafeBodySnippet(rawBody);
+
+  console.warn('[WooCommerce Proxy] Non-JSON response received', {
+    url: safeUrl,
+    status,
+    contentType: shortType,
+    excerpt: excerpt || '(empty response)',
+  });
+
+  return `Proxy endpoint returned non-JSON content (HTTP ${status}, ${shortType}) for ${safeUrl}${
+    excerpt ? ` — "${excerpt}"` : ''
+  }`;
+}
+
 /**
  * Fetches JSON cleanly without infinite retry loops:
  * - Never retries CORS/network TypeErrors, timeouts, 4xx errors (except 429), or non-JSON responses.
@@ -247,41 +321,47 @@ async function fetchJsonBounded<T>(
       }
 
       const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
+      const rawText = await response.text();
+
+      if (!contentType.toLowerCase().includes('application/json')) {
         throw new WooNetworkError(
-          response.ok
-            ? 'Proxy endpoint returned non-JSON content'
-            : `HTTP ${response.status}`,
+          buildNonJsonErrorMessage(url, response.status, contentType, rawText),
+          { status: response.status || 502 }
+        );
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        throw new WooNetworkError(
+          buildNonJsonErrorMessage(url, response.status, contentType, rawText),
           { status: response.status || 502 }
         );
       }
 
       if (!response.ok) {
-        let serverErrorMsg = `HTTP ${response.status}`;
-        try {
-          const errBody = (await response.json()) as { error?: string; message?: string };
-          if (errBody?.error) serverErrorMsg = errBody.error;
-          else if (errBody?.message) serverErrorMsg = errBody.message;
-        } catch {
-          // Keep HTTP status fallback
-        }
+        const errBody = parsed as { error?: string; message?: string };
+        const serverErrorMsg =
+          errBody?.error || errBody?.message || `HTTP ${response.status}`;
         throw new WooNetworkError(serverErrorMsg, { status: response.status });
       }
 
-      return (await response.json()) as T;
+      return parsed as T;
     } catch (err) {
       clearTimeout(timer);
       if (err instanceof WooNetworkError) {
         throw err;
       }
       if (err instanceof Error && err.name === 'AbortError') {
-        throw new WooNetworkError('Request timed out while contacting catalog proxy.', {
-          isTimeout: true,
-        });
+        throw new WooNetworkError(
+          `Request timed out while contacting ${sanitizeUrlForDebug(url)}.`,
+          { isTimeout: true }
+        );
       }
       // Browser fetch throws TypeError on CORS blocks or unreachable hosts — fail fast without looping
       throw new WooNetworkError(
-        'Network or CORS error while reaching WooCommerce endpoint.',
+        `Network or CORS error while reaching ${sanitizeUrlForDebug(url)}.`,
         { isCorsOrNetwork: true }
       );
     }

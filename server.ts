@@ -85,6 +85,25 @@ function clampPerPage(raw: unknown, fallback = '100'): string {
   return String(Math.min(n, 100));
 }
 
+function extractSafeUpstreamSnippet(rawText: string, maxLen = 140): string {
+  if (!rawText) return '';
+  const trimmed = rawText.trim();
+  const looksLikeHtml = /^<!doctype\s+html|^<html[\s>]/i.test(trimmed);
+  const cleaned = trimmed
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b(ck|cs|sk|pk)_[a-zA-Z0-9]{10,}\b/gi, '[REDACTED]')
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9+/=._-]+/gi, '$1 [REDACTED]');
+
+  if (!cleaned && looksLikeHtml) return '[HTML document]';
+  const prefix = looksLikeHtml ? '[HTML] ' : '';
+  const full = `${prefix}${cleaned}`.trim();
+  return full.length <= maxLen ? full : `${full.slice(0, maxLen).trimEnd()}…`;
+}
+
 async function fetchUpstreamJson(
   url: string,
   authHeader?: string
@@ -107,15 +126,47 @@ async function fetchUpstreamJson(
     });
 
     const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
+    const rawText = await response.text();
+    if (!contentType.toLowerCase().includes('application/json')) {
+      const excerpt = extractSafeUpstreamSnippet(rawText);
+      const safePath = (() => {
+        try {
+          const u = new URL(url);
+          return `${u.origin}${u.pathname}`;
+        } catch {
+          return 'upstream';
+        }
+      })();
+      console.warn('[WooCommerce Server Proxy] Non-JSON upstream response', {
+        upstream: safePath,
+        status: response.status,
+        contentType: contentType.split(';')[0].trim() || 'unknown',
+        excerpt: excerpt || '(empty response)',
+      });
       return {
         status: response.ok ? 502 : response.status,
-        data: { error: 'Upstream returned non-JSON response' },
+        data: {
+          error: `Upstream returned non-JSON response (HTTP ${response.status})${
+            excerpt ? `: "${excerpt}"` : ''
+          }`,
+        },
       };
     }
 
-    const data = await response.json();
-    return { status: response.status, data };
+    try {
+      const data = JSON.parse(rawText);
+      return { status: response.status, data };
+    } catch {
+      const excerpt = extractSafeUpstreamSnippet(rawText);
+      return {
+        status: response.ok ? 502 : response.status,
+        data: {
+          error: `Upstream returned invalid JSON (HTTP ${response.status})${
+            excerpt ? `: "${excerpt}"` : ''
+          }`,
+        },
+      };
+    }
   } finally {
     clearTimeout(timer);
   }
