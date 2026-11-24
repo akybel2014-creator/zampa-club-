@@ -48,7 +48,7 @@ export function HeroSection({
               <button
                 type="button"
                 onClick={onExploreBestSellers}
-                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white text-white text-sm font-semibold shadow-sm transition-colors whitespace-nowrap"
               >
                 <span>Shop Best Sellers</span>
                 <ArrowRight className="w-4 h-4" />
@@ -56,7 +56,7 @@ export function HeroSection({
               <button
                 type="button"
                 onClick={() => onSelectCategory('deals')}
-                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-white/15 hover:bg-white/25 backdrop-blur-sm text-white text-sm font-semibold border border-white/25 transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl bg-white/15 hover:bg-white/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white backdrop-blur-sm text-white text-sm font-semibold border border-white/25 transition-colors whitespace-nowrap"
               >
                 Monthly Deals
               </button>
@@ -76,6 +76,7 @@ export function HeroSection({
               src={HERO_ASSETS.promoDogs}
               alt="French Bulldog wearing an orange ergonomic harness"
               loading="eager"
+              fetchPriority="low"
               decoding="async"
               width={900}
               height={672}
@@ -97,7 +98,7 @@ export function HeroSection({
                   No-pull harnesses & orthopedic beds
                 </p>
               </div>
-              <span className="w-9 h-9 rounded-full bg-[#F97316] text-white inline-flex items-center justify-center shrink-0 group-hover:bg-[#EA580C] transition-colors">
+              <span className="w-9 h-9 rounded-full bg-[#C2410C] text-white inline-flex items-center justify-center shrink-0 group-hover:bg-[#9A3412] transition-colors">
                 <ArrowRight className="w-4 h-4" />
               </span>
             </div>
@@ -113,6 +114,7 @@ export function HeroSection({
               src={HERO_ASSETS.promoCats}
               alt="British Shorthair cat lounging on a birch wood cat perch"
               loading="eager"
+              fetchPriority="low"
               decoding="async"
               width={900}
               height={672}
@@ -134,7 +136,7 @@ export function HeroSection({
                   Nordic design & whisper-quiet hydration
                 </p>
               </div>
-              <span className="w-9 h-9 rounded-full bg-[#0D9488] text-white inline-flex items-center justify-center shrink-0 group-hover:bg-[#0F766E] transition-colors">
+              <span className="w-9 h-9 rounded-full bg-[#0F766E] text-white inline-flex items-center justify-center shrink-0 group-hover:bg-[#115E59] transition-colors">
                 <ArrowRight className="w-4 h-4" />
               </span>
             </div>
@@ -172,7 +174,7 @@ export function HeroSection({
               key={box.title}
               className="rounded-xl bg-white border border-[#E7E5E4] px-4 py-3.5 flex items-center gap-3.5"
             >
-              <div className="w-10 h-10 rounded-xl bg-[#0D9488]/10 text-[#0D9488] flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-[#0F766E]/10 text-[#0F766E] flex items-center justify-center shrink-0">
                 <Icon className="w-5 h-5" />
               </div>
               <div className="min-w-0">

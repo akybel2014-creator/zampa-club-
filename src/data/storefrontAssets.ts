@@ -1,9 +1,12 @@
+import heroBannerImg from '../assets/images/hero_zampa_club.webp';
+import promoDogsImg from '../assets/images/promo_speciale_cani.webp';
+import promoCatsImg from '../assets/images/promo_speciale_gatti.webp';
 import { ReviewItem } from '../types/shop';
 
 export const HERO_ASSETS = {
-  mainBanner: '/src/assets/images/hero_zampa_club.webp',
-  promoDogs: '/src/assets/images/promo_speciale_cani.webp',
-  promoCats: '/src/assets/images/promo_speciale_gatti.webp',
+  mainBanner: heroBannerImg,
+  promoDogs: promoDogsImg,
+  promoCats: promoCatsImg,
 };
 
 export const VERIFIED_REVIEWS: ReviewItem[] = [

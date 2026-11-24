@@ -1,0 +1,23 @@
+# Zampa Club
+
+> Zampa Club (shop.zampaclub.it) is a modern pet boutique and online store curated for dogs, cats, and small pets, featuring ergonomic harnesses, orthopedic beds, cat trees, smart feeders, and travel gear connected directly to WooCommerce checkout.
+
+## Storefront & Shopping
+
+- [Zampa Club Storefront](https://shop.zampaclub.it/): Browse the full pet catalog, filter by pet or need, and select product variations.
+- [Dogs Collection](https://shop.zampaclub.it/#product-catalog): Ergonomic harnesses, leashes, apparel, interactive toys, and comfort essentials for dogs.
+- [Cats Collection](https://shop.zampaclub.it/#product-catalog): Nordic cat trees, scratchers, circulating water fountains, and interactive cat toys.
+- [Home & Comfort](https://shop.zampaclub.it/#product-catalog): Orthopedic memory foam beds and calming donut beds.
+- [Travel & Gear](https://shop.zampaclub.it/#product-catalog): Pet carriers, car seat covers, and walk accessories.
+- [Food & Treats](https://shop.zampaclub.it/#product-catalog): Wi-Fi automatic feeders, feeding mats, bowls, and quiet water fountains.
+
+## Checkout & Account
+
+- [WooCommerce Checkout](https://zampaclub.it/pagamento/): Encrypted checkout powered by WooCommerce.
+- [Customer Account](https://zampaclub.it/my-account/): Order history, tracking, and account management.
+
+## Policies & Support
+
+- Shipping: Free US shipping on orders over $39 ($4.90 flat rate below), tracked delivery in 4-7 business days.
+- Returns: Easy 30-day returns and size exchanges.
+- Contact: hello@zampaclub.it

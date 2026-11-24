@@ -204,7 +204,7 @@ export function CatalogSection({
               id="catalog-sort"
               value={sortBy}
               onChange={(e) => onChangeSort(e.target.value as SortOption)}
-              className="pl-8 pr-4 py-2 rounded-xl bg-white border border-[#E7E5E4] text-xs sm:text-sm font-medium text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#F97316]/25 focus:border-[#F97316]"
+              className="pl-8 pr-4 py-2 rounded-xl bg-white border border-[#E7E5E4] text-xs sm:text-sm font-medium text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/25 focus:border-[#C2410C]"
             >
               <option value="popular">Most Popular</option>
               <option value="price-asc">Price: Low to High</option>
@@ -228,7 +228,7 @@ export function CatalogSection({
                 (activeSubFilter && activeSubFilter !== 'ON_SALE')) && (
                 <>
                   <span aria-hidden="true">/</span>
-                  <strong className="text-[#F97316]">
+                  <strong className="text-[#C2410C]">
                     {activeChildCategoryName || activeSubFilter}
                   </strong>
                 </>
@@ -246,7 +246,7 @@ export function CatalogSection({
             <button
               type="button"
               onClick={onResetFilters}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#F97316] hover:text-[#EA580C] whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#C2410C] hover:text-[#9A3412] whitespace-nowrap"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Show All</span>
@@ -287,7 +287,7 @@ export function CatalogSection({
                       }
                       className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
                         isChildSelected
-                          ? 'bg-[#F97316] text-white border-[#F97316]'
+                          ? 'bg-[#C2410C] text-white border-[#C2410C]'
                           : 'bg-[#FAFAF9] text-[#57534E] border-[#E7E5E4] hover:border-[#D6D3D1] hover:text-[#1C1917]'
                       }`}
                     >
@@ -311,7 +311,7 @@ export function CatalogSection({
                       }
                       className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
                         isSubSelected
-                          ? 'bg-[#F97316] text-white border-[#F97316]'
+                          ? 'bg-[#C2410C] text-white border-[#C2410C]'
                           : 'bg-[#FAFAF9] text-[#57534E] border-[#E7E5E4] hover:border-[#D6D3D1] hover:text-[#1C1917]'
                       }`}
                     >
@@ -344,7 +344,7 @@ export function CatalogSection({
         </div>
       ) : errorMessage && products.length === 0 ? (
         <div className="rounded-2xl bg-white border border-[#E7E5E4] p-12 text-center max-w-lg mx-auto">
-          <AlertCircle className="w-10 h-10 text-[#F97316] mx-auto mb-3" />
+          <AlertCircle className="w-10 h-10 text-[#C2410C] mx-auto mb-3" />
           <h3 className="font-display text-lg font-bold text-[#1C1917]">
             Unable to load catalog from WooCommerce
           </h3>
@@ -354,7 +354,7 @@ export function CatalogSection({
           <button
             type="button"
             onClick={onRetry}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors"
           >
             <RotateCcw className="w-4 h-4" />
             <span>Retry Connection</span>
@@ -372,7 +372,7 @@ export function CatalogSection({
           <button
             type="button"
             onClick={onResetFilters}
-            className="px-5 py-2.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold transition-colors"
+            className="px-5 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors"
           >
             Reset Filters
           </button>

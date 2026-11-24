@@ -1,3 +1,9 @@
+import prodCucciaImg from '../assets/images/prod_cuccia_nuvola.webp';
+import prodDistributoreImg from '../assets/images/prod_distributore_wifi.webp';
+import prodSpazzolaImg from '../assets/images/prod_spazzola_vapore.webp';
+import prodTelecameraImg from '../assets/images/prod_telecamera_pet.webp';
+import prodTunnelImg from '../assets/images/prod_tunnel_coniglio.webp';
+import prodZainoImg from '../assets/images/prod_zaino_trasportino.webp';
 import { HERO_ASSETS } from '../data/storefrontAssets';
 import { sortWooCategories } from '../services/wooCommerceService';
 import { MacroCategorySlug, WooCategory } from '../types/shop';
@@ -25,22 +31,22 @@ function resolveCategoryImage(cat: WooCategory): string {
     return cat.image;
   }
   if (slug.includes('home') || slug.includes('comfort') || name.includes('home') || name.includes('bed')) {
-    return '/src/assets/images/prod_cuccia_nuvola.webp';
+    return prodCucciaImg;
   }
   if (slug.includes('travel') || slug.includes('carrier') || slug.includes('gear') || name.includes('travel')) {
-    return '/src/assets/images/prod_zaino_trasportino.webp';
+    return prodZainoImg;
   }
   if (slug.includes('food') || slug.includes('treat') || name.includes('food')) {
-    return '/src/assets/images/prod_distributore_wifi.webp';
+    return prodDistributoreImg;
   }
   if (slug.includes('groom') || slug.includes('care') || name.includes('groom')) {
-    return '/src/assets/images/prod_spazzola_vapore.webp';
+    return prodSpazzolaImg;
   }
   if (slug.includes('tech') || slug.includes('smart') || name.includes('tech')) {
-    return '/src/assets/images/prod_telecamera_pet.webp';
+    return prodTelecameraImg;
   }
   if (slug.includes('small') || slug.includes('rabbit') || name.includes('small')) {
-    return '/src/assets/images/prod_tunnel_coniglio.webp';
+    return prodTunnelImg;
   }
 
   return HERO_ASSETS.mainBanner;
@@ -123,7 +129,7 @@ export function QuickCategories({
                 onClick={() => onSelectCategory(tile.slug, undefined, tile.id)}
                 className={`group rounded-2xl p-3 border text-center transition-all duration-200 hover:-translate-y-0.5 ${
                   isSelected
-                    ? 'bg-white border-[#F97316] shadow-md'
+                    ? 'bg-white border-[#C2410C] shadow-md'
                     : 'bg-white border-[#E7E5E4] hover:border-[#D6D3D1] hover:shadow-sm'
                 }`}
               >
@@ -140,7 +146,7 @@ export function QuickCategories({
                 </div>
                 <div
                   className={`font-display text-sm font-bold truncate ${
-                    isSelected ? 'text-[#F97316]' : 'text-[#1C1917]'
+                    isSelected ? 'text-[#C2410C]' : 'text-[#1C1917]'
                   }`}
                 >
                   {tile.title}

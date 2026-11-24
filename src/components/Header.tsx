@@ -233,7 +233,7 @@ export function Header({
         <button
           type="button"
           onClick={() => handleCategoryClick(node.slug, undefined, node.id)}
-          className="w-full min-h-[44px] flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-sm font-medium text-[#1C1917] hover:bg-white hover:text-[#F97316] active:bg-white transition-colors text-left"
+          className="w-full min-h-[44px] flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-sm font-medium text-[#1C1917] hover:bg-white hover:text-[#C2410C] active:bg-white transition-colors text-left"
         >
           <span className="break-words min-w-0 leading-snug">{node.name}</span>
           <span className="inline-flex items-center gap-1 text-xs text-[#78716C] tabular-nums shrink-0">
@@ -346,7 +346,7 @@ export function Header({
                       setMobileMenuOpen(false);
                       onResetFilters();
                     }}
-                    className="w-full min-h-[46px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#1C1917] text-white text-sm font-semibold hover:bg-[#F97316] transition-colors"
+                    className="w-full min-h-[46px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#1C1917] text-white text-sm font-semibold hover:bg-[#C2410C] transition-colors"
                   >
                     <span className="flex items-center gap-2.5">
                       <LayoutGrid className="w-4 h-4" />
@@ -377,7 +377,7 @@ export function Header({
                             }}
                             className={`w-full min-h-[52px] flex items-center justify-between gap-3 px-4 sm:px-5 py-3 text-sm font-semibold transition-colors text-left ${
                               expanded
-                                ? 'bg-[#FAFAF9] text-[#F97316]'
+                                ? 'bg-[#FAFAF9] text-[#C2410C]'
                                 : 'text-[#1C1917] hover:bg-[#FAFAF9]'
                             }`}
                           >
@@ -385,7 +385,7 @@ export function Header({
                               <CategoryIcon
                                 name={cat.iconName}
                                 className={`w-4 h-4 shrink-0 ${
-                                  expanded ? 'text-[#F97316]' : 'text-[#57534E]'
+                                  expanded ? 'text-[#C2410C]' : 'text-[#57534E]'
                                 }`}
                               />
                               <span className="break-words leading-snug">
@@ -400,7 +400,7 @@ export function Header({
                               )}
                               <ChevronDown
                                 className={`w-4 h-4 text-[#78716C] transition-transform duration-150 ${
-                                  expanded ? 'rotate-180 text-[#F97316]' : ''
+                                  expanded ? 'rotate-180 text-[#C2410C]' : ''
                                 }`}
                               />
                             </span>
@@ -413,7 +413,7 @@ export function Header({
                                 onClick={() =>
                                   handleCategoryClick(cat.slug, undefined, cat.id)
                                 }
-                                className="w-full min-h-[44px] flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold text-[#F97316] hover:bg-white transition-colors text-left"
+                                className="w-full min-h-[44px] flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-bold text-[#C2410C] hover:bg-white transition-colors text-left"
                               >
                                 <span>
                                   All {cat.name}
@@ -503,7 +503,7 @@ export function Header({
               <button
                 type="button"
                 onClick={onResetFilters}
-                className="text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#F97316] rounded-lg min-w-0"
+                className="text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#C2410C] rounded-lg min-w-0"
                 aria-label="Back to Zampa Club home"
               >
                 <span className="sm:hidden">
@@ -529,7 +529,7 @@ export function Header({
                   }}
                   placeholder="Search dog harnesses, cat trees, calming beds, water fountains..."
                   aria-label="Search products in catalog"
-                  className="w-full pl-11 pr-10 py-2.5 rounded-xl bg-[#FAFAF9] border border-[#E7E5E4] text-sm text-[#1C1917] placeholder:text-[#78716C] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#F97316]/25 focus:border-[#F97316] transition-all"
+                  className="w-full pl-11 pr-10 py-2.5 rounded-xl bg-[#FAFAF9] border border-[#E7E5E4] text-sm text-[#1C1917] placeholder:text-[#78716C] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#C2410C]/25 focus:border-[#C2410C] transition-all"
                 />
                 {searchQuery && (
                   <button
@@ -566,7 +566,7 @@ export function Header({
               >
                 <ShoppingBag className="w-4 h-4" />
                 <span className="hidden sm:inline">Cart</span>
-                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-[#F97316] text-white text-xs font-bold tabular-nums">
+                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-[#C2410C] text-white text-xs font-bold tabular-nums">
                   {cartCount}
                 </span>
               </button>
@@ -587,7 +587,7 @@ export function Header({
                 }}
                 placeholder="Search products for dogs, cats, travel, home..."
                 aria-label="Search products"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#FAFAF9] border border-[#E7E5E4] text-sm text-[#1C1917] placeholder:text-[#78716C] focus:bg-white focus:outline-none focus:border-[#F97316]"
+                className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#FAFAF9] border border-[#E7E5E4] text-sm text-[#1C1917] placeholder:text-[#78716C] focus:bg-white focus:outline-none focus:border-[#C2410C]"
               />
               {searchQuery && (
                 <button
@@ -621,8 +621,8 @@ export function Header({
                 aria-expanded={megaOpen}
                 className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   megaOpen
-                    ? 'bg-[#F97316] text-white'
-                    : 'bg-[#1C1917] text-white hover:bg-[#F97316]'
+                    ? 'bg-[#C2410C] text-white'
+                    : 'bg-[#1C1917] text-white hover:bg-[#C2410C]'
                 }`}
               >
                 <LayoutGrid className="w-4 h-4" />
@@ -657,7 +657,7 @@ export function Header({
                             }
                             className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors text-left ${
                               isActive
-                                ? 'bg-white text-[#F97316] font-semibold shadow-[inset_3px_0_0_#F97316]'
+                                ? 'bg-white text-[#C2410C] font-semibold shadow-[inset_3px_0_0_#C2410C]'
                                 : 'text-[#1C1917] hover:bg-white/70 font-medium'
                             }`}
                           >
@@ -665,14 +665,14 @@ export function Header({
                               <CategoryIcon
                                 name={cat.iconName}
                                 className={`w-4 h-4 shrink-0 ${
-                                  isActive ? 'text-[#F97316]' : 'text-[#57534E]'
+                                  isActive ? 'text-[#C2410C]' : 'text-[#57534E]'
                                 }`}
                               />
                               <span className="truncate">{cat.name}</span>
                             </span>
                             <ChevronRight
                               className={`w-4 h-4 shrink-0 ${
-                                isActive ? 'text-[#F97316]' : 'text-[#A8A29E]'
+                                isActive ? 'text-[#C2410C]' : 'text-[#78716C]'
                               }`}
                             />
                           </button>
@@ -701,7 +701,7 @@ export function Header({
                                 activeMegaCategory.id
                               )
                             }
-                            className="text-xs font-semibold text-[#F97316] hover:text-[#EA580C] whitespace-nowrap shrink-0"
+                            className="text-xs font-semibold text-[#C2410C] hover:text-[#9A3412] whitespace-nowrap shrink-0"
                           >
                             Shop all {activeMegaCategory.name} →
                           </button>
@@ -725,7 +725,7 @@ export function Header({
                                           lnk.categoryId || activeMegaCategory.id
                                         )
                                       }
-                                      className="text-sm text-[#1C1917] hover:text-[#F97316] hover:translate-x-0.5 transition-all text-left break-words"
+                                      className="text-sm text-[#1C1917] hover:text-[#C2410C] hover:translate-x-0.5 transition-all text-left break-words"
                                     >
                                       {lnk.label}
                                     </button>
@@ -752,14 +752,14 @@ export function Header({
                             />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#0D9488]">
+                            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#0F766E]">
                               Featured · {activeMegaCategory.name}
                             </div>
                             <div className="text-sm font-bold text-[#1C1917] truncate">
                               {featuredFlyoutProduct.name}
                             </div>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-sm font-bold text-[#F97316] tabular-nums">
+                              <span className="text-sm font-bold text-[#C2410C] tabular-nums">
                                 {formatUsd(featuredFlyoutProduct.price)}
                               </span>
                               {featuredFlyoutProduct.regular_price && (
@@ -775,7 +775,7 @@ export function Header({
                               setMegaOpen(false);
                               onSelectProduct(featuredFlyoutProduct);
                             }}
-                            className="px-3.5 py-2 rounded-lg bg-[#F97316] hover:bg-[#EA580C] text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+                            className="px-3.5 py-2 rounded-lg bg-[#C2410C] hover:bg-[#9A3412] text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
                           >
                             View Item
                           </button>
@@ -792,7 +792,7 @@ export function Header({
               <button
                 type="button"
                 onClick={onResetFilters}
-                className="hover:text-[#F97316] transition-colors whitespace-nowrap shrink-0"
+                className="hover:text-[#C2410C] transition-colors whitespace-nowrap shrink-0"
               >
                 Shop All
               </button>
@@ -801,7 +801,7 @@ export function Header({
                   key={item.id || item.slug}
                   type="button"
                   onClick={() => handleCategoryClick(item.slug, undefined, item.id)}
-                  className="hover:text-[#F97316] transition-colors whitespace-nowrap shrink-0"
+                  className="hover:text-[#C2410C] transition-colors whitespace-nowrap shrink-0"
                 >
                   {item.name}
                 </button>

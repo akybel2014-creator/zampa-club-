@@ -37,7 +37,7 @@ export function ProductCard({
       <button
         type="button"
         onClick={() => onOpenProduct(product)}
-        className="relative aspect-square w-full bg-white p-3 border-b border-[#F5F5F4] overflow-hidden flex items-center justify-center text-left focus-visible:outline-2 focus-visible:outline-[#F97316]"
+        className="relative aspect-square w-full bg-white p-3 border-b border-[#F5F5F4] overflow-hidden flex items-center justify-center text-left focus-visible:outline-2 focus-visible:outline-[#C2410C]"
       >
         <ResilientImage
           src={product.images[0]}
@@ -49,7 +49,7 @@ export function ProductCard({
           className="w-full h-full object-contain object-center transition-transform duration-300 group-hover:scale-[1.03]"
         />
         {discountPercent > 0 && (
-          <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-[#F97316] text-white text-xs font-bold tabular-nums shadow-sm">
+          <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-[#C2410C] text-white text-xs font-bold tabular-nums shadow-sm">
             -{discountPercent}%
           </span>
         )}
@@ -62,7 +62,7 @@ export function ProductCard({
             {product.categoryLabel}
           </span>
           <span className="inline-flex items-center gap-1 text-[#1C1917] font-semibold tabular-nums shrink-0">
-            <Star className="w-3.5 h-3.5 fill-[#F97316] text-[#F97316]" />
+            <Star className="w-3.5 h-3.5 fill-[#C2410C] text-[#C2410C]" aria-hidden="true" />
             <span>{product.rating.toFixed(1)}</span>
             <span className="text-[#78716C] font-normal">({product.reviews_count})</span>
           </span>
@@ -73,7 +73,7 @@ export function ProductCard({
           onClick={() => onOpenProduct(product)}
           className="mt-1.5 text-left"
         >
-          <h3 className="font-display text-base font-bold text-[#1C1917] group-hover:text-[#F97316] transition-colors line-clamp-2 leading-snug">
+          <h3 className="font-display text-base font-bold text-[#1C1917] group-hover:text-[#C2410C] transition-colors line-clamp-2 leading-snug">
             {product.name}
           </h3>
         </button>
@@ -104,10 +104,10 @@ export function ProductCard({
           <button
             type="button"
             onClick={handleQuickAddClick}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] ${
               justAdded
-                ? 'bg-[#0D9488] text-white'
-                : 'bg-[#F97316] hover:bg-[#EA580C] text-white'
+                ? 'bg-[#0F766E] text-white'
+                : 'bg-[#C2410C] hover:bg-[#9A3412] text-white'
             }`}
           >
             {justAdded ? (

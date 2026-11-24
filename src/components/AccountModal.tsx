@@ -63,7 +63,7 @@ export function AccountModal({
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E7E5E4]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#F97316]/10 text-[#F97316] flex items-center justify-center">
+            <div className="w-9 h-9 rounded-full bg-[#C2410C]/10 text-[#C2410C] flex items-center justify-center">
               <User className="w-4 h-4" />
             </div>
             <div>
@@ -91,7 +91,7 @@ export function AccountModal({
             onClick={() => setActiveTab('profile')}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'profile'
-                ? 'border-[#F97316] text-[#1C1917] bg-white'
+                ? 'border-[#C2410C] text-[#1C1917] bg-white'
                 : 'border-transparent text-[#57534E] hover:text-[#1C1917]'
             }`}
           >
@@ -102,7 +102,7 @@ export function AccountModal({
             onClick={() => setActiveTab('integration')}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'integration'
-                ? 'border-[#F97316] text-[#1C1917] bg-white'
+                ? 'border-[#C2410C] text-[#1C1917] bg-white'
                 : 'border-transparent text-[#57534E] hover:text-[#1C1917]'
             }`}
           >
@@ -123,7 +123,7 @@ export function AccountModal({
                       type="text"
                       value={petName}
                       onChange={(e) => setPetName(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 focus:border-[#F97316]"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
                     />
                   </div>
                   <div>
@@ -135,7 +135,7 @@ export function AccountModal({
                       onChange={(e) =>
                         setPetType(e.target.value as 'Dog' | 'Cat' | 'Small Pet')
                       }
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm text-[#1C1917] bg-white focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 focus:border-[#F97316]"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm text-[#1C1917] bg-white focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
                     >
                       <option value="Dog">Dog</option>
                       <option value="Cat">Cat</option>
@@ -147,12 +147,12 @@ export function AccountModal({
                 <div className="flex items-center justify-between pt-2">
                   <button
                     type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold transition-colors"
+                    className="px-5 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors"
                   >
                     Save Preferences
                   </button>
                   {savedNotice && (
-                    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[#0D9488]">
+                    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[#0F766E]">
                       <CheckCircle2 className="w-4 h-4" />
                       Saved preferences for {petName}
                     </span>
@@ -163,14 +163,14 @@ export function AccountModal({
               <div className="border-t border-[#E7E5E4] pt-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-[#1C1917] flex items-center gap-2">
-                    <Package className="w-4 h-4 text-[#0D9488]" />
+                    <Package className="w-4 h-4 text-[#0F766E]" />
                     Orders & Returns
                   </h3>
                   <a
                     href={`${WOOCOMMERCE_CONFIG.WP_STORE_URL}/my-account/`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#F97316] hover:underline"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#C2410C] hover:underline"
                   >
                     Sign in on Store
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -185,7 +185,7 @@ export function AccountModal({
           ) : (
             <div className="space-y-5">
               <div className="rounded-xl border border-[#E7E5E4] bg-[#FAFAF9] p-4 flex items-start gap-3">
-                <Server className="w-5 h-5 text-[#0D9488] shrink-0 mt-0.5" />
+                <Server className="w-5 h-5 text-[#0F766E] shrink-0 mt-0.5" />
                 <div className="space-y-1 text-sm">
                   <div className="font-semibold text-[#1C1917]">
                     Active Catalog Source:{' '}
@@ -220,7 +220,7 @@ export function AccountModal({
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-[#1C1917] flex items-center gap-2">
-                    <Code2 className="w-4 h-4 text-[#F97316]" />
+                    <Code2 className="w-4 h-4 text-[#C2410C]" />
                     WPCode Snippet for Multi-Item Checkout
                   </h3>
                   <button
@@ -233,7 +233,7 @@ export function AccountModal({
                   </button>
                 </div>
                 <p className="text-xs text-[#57534E] flex items-start gap-1.5">
-                  <Info className="w-3.5 h-3.5 text-[#0D9488] shrink-0 mt-0.5" />
+                  <Info className="w-3.5 h-3.5 text-[#0F766E] shrink-0 mt-0.5" />
                   <span>
                     Paste this snippet in WordPress using the free WPCode plugin so
                     WooCommerce accepts comma-separated product/variation IDs and

@@ -28,3 +28,8 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+.defer-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 520px;
+}

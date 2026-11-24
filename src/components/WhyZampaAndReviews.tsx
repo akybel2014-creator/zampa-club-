@@ -3,12 +3,12 @@ import { VERIFIED_REVIEWS } from '../data/storefrontAssets';
 
 export function WhyZampaAndReviews() {
   return (
-    <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
+    <section className="defer-section max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
       {/* Why Choose Zampa Club */}
       <div className="rounded-2xl bg-white border border-[#E7E5E4] p-6 sm:p-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           <div className="lg:col-span-5 space-y-3">
-            <div className="text-xs font-bold uppercase tracking-wider text-[#0D9488]">
+            <div className="text-xs font-bold uppercase tracking-wider text-[#0F766E]">
               The Zampa Club Standard
             </div>
             <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#1C1917] tracking-tight text-balance">
@@ -51,7 +51,7 @@ export function WhyZampaAndReviews() {
                   className="rounded-xl bg-[#FAFAF9] border border-[#E7E5E4] p-4 space-y-1.5"
                 >
                   <div className="flex items-center gap-2 text-[#1C1917] font-bold text-sm">
-                    <Icon className="w-4 h-4 text-[#F97316] shrink-0" />
+                    <Icon className="w-4 h-4 text-[#C2410C] shrink-0" />
                     <span>{item.title}</span>
                   </div>
                   <p className="text-xs text-[#57534E] leading-relaxed">{item.body}</p>
@@ -84,16 +84,21 @@ export function WhyZampaAndReviews() {
             >
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-0.5" aria-label={`${rev.rating} out of 5 stars`}>
+                  <div
+                    role="img"
+                    className="flex items-center gap-0.5"
+                    aria-label={`${rev.rating} out of 5 stars`}
+                  >
                     {Array.from({ length: rev.rating }).map((_, idx) => (
                       <Star
                         key={idx}
-                        className="w-4 h-4 fill-[#F97316] text-[#F97316]"
+                        aria-hidden="true"
+                        className="w-4 h-4 fill-[#C2410C] text-[#C2410C]"
                       />
                     ))}
                   </div>
-                  <span className="text-xs font-medium text-[#0D9488] flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span className="text-xs font-medium text-[#0F766E] flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                     Verified Buyer
                   </span>
                 </div>

@@ -111,7 +111,7 @@ export function ProductModal({
                   className="w-full h-full object-contain object-center"
                 />
                 {discountPercent > 0 && (
-                  <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-[#F97316] text-white text-xs font-bold tabular-nums">
+                  <span className="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-[#C2410C] text-white text-xs font-bold tabular-nums">
                     Save {discountPercent}%
                   </span>
                 )}
@@ -126,7 +126,7 @@ export function ProductModal({
                       onClick={() => setSelectedImageIdx(idx)}
                       className={`w-16 h-16 aspect-square shrink-0 rounded-xl overflow-hidden border-2 bg-white p-1 transition-all ${
                         selectedImageIdx === idx
-                          ? 'border-[#F97316] shadow-sm'
+                          ? 'border-[#C2410C] shadow-sm'
                           : 'border-[#E7E5E4] opacity-75 hover:opacity-100'
                       }`}
                     >
@@ -149,11 +149,11 @@ export function ProductModal({
             <div className="md:col-span-6 space-y-5">
               <div>
                 <div className="flex items-center justify-between gap-2 text-xs text-[#57534E]">
-                  <span className="font-semibold uppercase tracking-wider text-[#0D9488]">
+                  <span className="font-semibold uppercase tracking-wider text-[#0F766E]">
                     {product.brand}
                   </span>
                   <span className="inline-flex items-center gap-1 font-semibold text-[#1C1917] tabular-nums">
-                    <Star className="w-3.5 h-3.5 fill-[#F97316] text-[#F97316]" />
+                    <Star className="w-3.5 h-3.5 fill-[#C2410C] text-[#C2410C]" aria-hidden="true" />
                     {product.rating.toFixed(1)} · {product.reviews_count} reviews
                   </span>
                 </div>
@@ -174,8 +174,8 @@ export function ProductModal({
                       {formatUsd(activeRegular)}
                     </span>
                   )}
-                  <span className="text-xs font-semibold text-[#0D9488] flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5" />
+                  <span className="text-xs font-semibold text-[#0F766E] flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5" aria-hidden="true" />
                     In Stock
                   </span>
                 </div>
@@ -208,7 +208,7 @@ export function ProductModal({
                         onClick={() => setSelectedVariationId(v.variation_id)}
                         className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-left transition-all ${
                           selected
-                            ? 'border-[#F97316] bg-[#F97316]/5 ring-1 ring-[#F97316]'
+                            ? 'border-[#C2410C] bg-[#C2410C]/5 ring-1 ring-[#C2410C]'
                             : 'border-[#E7E5E4] bg-white hover:border-[#D6D3D1]'
                         }`}
                       >
@@ -260,7 +260,7 @@ export function ProductModal({
                 <button
                   type="button"
                   onClick={handleConfirmAdd}
-                  className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-bold shadow-sm transition-colors"
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-bold shadow-sm transition-colors"
                 >
                   <ShoppingBag className="w-4 h-4" />
                   <span>
@@ -286,11 +286,11 @@ export function ProductModal({
 
               <div className="flex flex-wrap items-center gap-4 text-xs text-[#57534E] pt-1">
                 <span className="inline-flex items-center gap-1.5">
-                  <Truck className="w-4 h-4 text-[#0D9488]" />
+                  <Truck className="w-4 h-4 text-[#0F766E]" />
                   Free shipping over $39
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-[#0D9488]" />
+                  <ShieldCheck className="w-4 h-4 text-[#0F766E]" />
                   30-day easy returns
                 </span>
               </div>

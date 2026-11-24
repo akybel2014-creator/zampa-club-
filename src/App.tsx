@@ -1,19 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AccountModal } from './components/AccountModal';
-import { CartDrawer } from './components/CartDrawer';
-import { CatalogSection } from './components/CatalogSection';
-import { Footer } from './components/Footer';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
-import { ProductModal } from './components/ProductModal';
 import { QuickCategories } from './components/QuickCategories';
-import { WhyZampaAndReviews } from './components/WhyZampaAndReviews';
 import {
   buildMegaCategoriesFromWoo,
   clearWooCommerceCache,
   fetchCatalogProducts,
   fetchWooCategories,
   findCategoryBySlugOrAlias,
+  getCachedCatalogSnapshot,
   getDescendantCategoryIds,
 } from './services/wooCommerceService';
 import {
@@ -25,16 +20,52 @@ import {
   WooCategory,
 } from './types/shop';
 
+const CatalogSection = lazy(() =>
+  import('./components/CatalogSection').then((m) => ({ default: m.CatalogSection }))
+);
+const WhyZampaAndReviews = lazy(() =>
+  import('./components/WhyZampaAndReviews').then((m) => ({
+    default: m.WhyZampaAndReviews,
+  }))
+);
+const Footer = lazy(() =>
+  import('./components/Footer').then((m) => ({ default: m.Footer }))
+);
+const ProductModal = lazy(() =>
+  import('./components/ProductModal').then((m) => ({ default: m.ProductModal }))
+);
+const CartDrawer = lazy(() =>
+  import('./components/CartDrawer').then((m) => ({ default: m.CartDrawer }))
+);
+const AccountModal = lazy(() =>
+  import('./components/AccountModal').then((m) => ({ default: m.AccountModal }))
+);
+
 export type ConnectionStatus = 'loading' | 'woocommerce' | 'error';
 
 export default function App() {
-  const [allProducts, setAllProducts] = useState<Product[]>([]);
-  const [wooCategories, setWooCategories] = useState<WooCategory[]>([]);
-  const [sourceMode, setSourceMode] = useState<ConnectionStatus>('loading');
-  const [categorySourceMode, setCategorySourceMode] =
-    useState<ConnectionStatus>('loading');
+  const [initialCache] = useState(() => getCachedCatalogSnapshot());
+  const hasWarmCache = Boolean(
+    initialCache.products &&
+      initialCache.products.length > 0 &&
+      initialCache.categories &&
+      initialCache.categories.length > 0
+  );
+
+  const [allProducts, setAllProducts] = useState<Product[]>(
+    () => initialCache.products || []
+  );
+  const [wooCategories, setWooCategories] = useState<WooCategory[]>(
+    () => initialCache.categories || []
+  );
+  const [sourceMode, setSourceMode] = useState<ConnectionStatus>(() =>
+    initialCache.products ? 'woocommerce' : 'loading'
+  );
+  const [categorySourceMode, setCategorySourceMode] = useState<ConnectionStatus>(() =>
+    initialCache.categories ? 'woocommerce' : 'loading'
+  );
   const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [loadingCatalog, setLoadingCatalog] = useState(true);
+  const [loadingCatalog, setLoadingCatalog] = useState(() => !hasWarmCache);
 
   const [activeTab, setActiveTab] = useState<string>('all');
   const [activeMacroCategory, setActiveMacroCategory] =
@@ -96,32 +127,48 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (hasWarmCache) {
+      return;
+    }
+
     let active = true;
-    Promise.all([fetchCatalogProducts(), fetchWooCategories()]).then(
-      ([prodRes, catRes]) => {
+    let rafId = 0;
+    let timerId = 0;
+
+    // Defer WooCommerce network calls until after first paint so Hero & critical UI render immediately
+    rafId = window.requestAnimationFrame(() => {
+      timerId = window.setTimeout(() => {
         if (!active) return;
-        setAllProducts(prodRes.products);
-        setSourceMode(prodRes.source);
-        setWooCategories(catRes.categories);
-        setCategorySourceMode(catRes.source);
+        Promise.all([fetchCatalogProducts(), fetchWooCategories()]).then(
+          ([prodRes, catRes]) => {
+            if (!active) return;
+            setAllProducts(prodRes.products);
+            setSourceMode(prodRes.source);
+            setWooCategories(catRes.categories);
+            setCategorySourceMode(catRes.source);
 
-        if (prodRes.source === 'error') {
-          setCatalogError(
-            prodRes.message || 'Unable to load products from WooCommerce.'
-          );
-        } else if (catRes.source === 'error') {
-          setCatalogError(
-            catRes.message || 'Unable to load categories from WooCommerce.'
-          );
-        }
+            if (prodRes.source === 'error') {
+              setCatalogError(
+                prodRes.message || 'Unable to load products from WooCommerce.'
+              );
+            } else if (catRes.source === 'error') {
+              setCatalogError(
+                catRes.message || 'Unable to load categories from WooCommerce.'
+              );
+            }
 
-        setLoadingCatalog(false);
-      }
-    );
+            setLoadingCatalog(false);
+          }
+        );
+      }, 0);
+    });
+
     return () => {
       active = false;
+      if (rafId) window.cancelAnimationFrame(rafId);
+      if (timerId) window.clearTimeout(timerId);
     };
-  }, []);
+  }, [hasWarmCache]);
 
   const megaCategories = useMemo(
     () => buildMegaCategoriesFromWoo(wooCategories, allProducts),
@@ -354,62 +401,87 @@ export default function App() {
           onSelectCategory={handleSelectCategory}
         />
 
-        <CatalogSection
-          products={filteredProducts}
-          allProducts={allProducts}
-          wooCategories={wooCategories}
-          loading={loadingCatalog}
-          errorMessage={catalogError}
-          activeTab={activeTab}
-          activeMacroCategory={activeMacroCategory}
-          activeCategoryId={activeCategoryId}
-          activeSubFilter={activeSubFilter}
-          searchQuery={searchQuery}
-          sortBy={sortBy}
-          onChangeTab={handleChangeTab}
-          onSelectCategory={handleSelectCategory}
-          onChangeSort={setSortBy}
-          onResetFilters={handleResetFilters}
-          onRetry={() => loadWooCommerceData(true)}
-          onOpenProduct={setSelectedProduct}
-          onQuickAdd={handleQuickAdd}
-        />
+        <Suspense
+          fallback={
+            <section
+              id="product-catalog"
+              className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[420px]"
+            />
+          }
+        >
+          <CatalogSection
+            products={filteredProducts}
+            allProducts={allProducts}
+            wooCategories={wooCategories}
+            loading={loadingCatalog}
+            errorMessage={catalogError}
+            activeTab={activeTab}
+            activeMacroCategory={activeMacroCategory}
+            activeCategoryId={activeCategoryId}
+            activeSubFilter={activeSubFilter}
+            searchQuery={searchQuery}
+            sortBy={sortBy}
+            onChangeTab={handleChangeTab}
+            onSelectCategory={handleSelectCategory}
+            onChangeSort={setSortBy}
+            onResetFilters={handleResetFilters}
+            onRetry={() => loadWooCommerceData(true)}
+            onOpenProduct={setSelectedProduct}
+            onQuickAdd={handleQuickAdd}
+          />
+        </Suspense>
 
-        <WhyZampaAndReviews />
+        <Suspense fallback={null}>
+          <WhyZampaAndReviews />
+        </Suspense>
       </main>
 
-      <Footer
-        wooCategories={wooCategories}
-        onSelectCategory={handleSelectCategory}
-        onOpenAccount={() => setAccountOpen(true)}
-      />
+      <Suspense fallback={null}>
+        <Footer
+          wooCategories={wooCategories}
+          onSelectCategory={handleSelectCategory}
+          onOpenAccount={() => setAccountOpen(true)}
+        />
+      </Suspense>
 
-      <ProductModal
-        product={selectedProduct}
-        onClose={() => setSelectedProduct(null)}
-        onAddToCart={handleAddToCart}
-      />
+      {selectedProduct && (
+        <Suspense fallback={null}>
+          <ProductModal
+            product={selectedProduct}
+            onClose={() => setSelectedProduct(null)}
+            onAddToCart={handleAddToCart}
+          />
+        </Suspense>
+      )}
 
-      <CartDrawer
-        isOpen={cartOpen}
-        items={cartItems}
-        onClose={() => setCartOpen(false)}
-        onUpdateQty={handleUpdateQty}
-        onRemoveItem={handleRemoveItem}
-        onOpenAccountConfig={() => {
-          setCartOpen(false);
-          setAccountOpen(true);
-        }}
-      />
+      {cartOpen && (
+        <Suspense fallback={null}>
+          <CartDrawer
+            isOpen={cartOpen}
+            items={cartItems}
+            onClose={() => setCartOpen(false)}
+            onUpdateQty={handleUpdateQty}
+            onRemoveItem={handleRemoveItem}
+            onOpenAccountConfig={() => {
+              setCartOpen(false);
+              setAccountOpen(true);
+            }}
+          />
+        </Suspense>
+      )}
 
-      <AccountModal
-        isOpen={accountOpen}
-        onClose={() => setAccountOpen(false)}
-        sourceMode={sourceMode}
-        categorySourceMode={categorySourceMode}
-        productCount={allProducts.length}
-        categoryCount={wooCategories.length}
-      />
+      {accountOpen && (
+        <Suspense fallback={null}>
+          <AccountModal
+            isOpen={accountOpen}
+            onClose={() => setAccountOpen(false)}
+            sourceMode={sourceMode}
+            categorySourceMode={categorySourceMode}
+            productCount={allProducts.length}
+            categoryCount={wooCategories.length}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

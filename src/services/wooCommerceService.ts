@@ -106,6 +106,36 @@ export function clearWooCommerceCache(): void {
   }
 }
 
+export function getCachedCatalogSnapshot(): {
+  products: Product[] | null;
+  categories: WooCategory[] | null;
+} {
+  let products: Product[] | null = null;
+  let categories: WooCategory[] | null = null;
+
+  if (memoryProductsCache && Date.now() - memoryProductsCache.ts <= CACHE_TTL_MS) {
+    products = memoryProductsCache.data;
+  } else {
+    const cachedProducts = readSessionCache<Product[]>(PRODUCTS_CACHE_KEY);
+    if (cachedProducts && cachedProducts.length > 0) {
+      memoryProductsCache = { ts: Date.now(), data: cachedProducts };
+      products = cachedProducts;
+    }
+  }
+
+  if (memoryCategoriesCache && Date.now() - memoryCategoriesCache.ts <= CACHE_TTL_MS) {
+    categories = memoryCategoriesCache.data;
+  } else {
+    const cachedCategories = readSessionCache<WooCategory[]>(CATEGORIES_CACHE_KEY);
+    if (cachedCategories && cachedCategories.length > 0) {
+      memoryCategoriesCache = { ts: Date.now(), data: cachedCategories };
+      categories = cachedCategories;
+    }
+  }
+
+  return { products, categories };
+}
+
 async function fetchJsonWithRetry<T>(
   url: string,
   { timeoutMs = 20000, maxRetries = 2 }: { timeoutMs?: number; maxRetries?: number } = {}

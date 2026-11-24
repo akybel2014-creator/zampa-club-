@@ -14,7 +14,7 @@ export function ZampaLogo({ className = '', size = 'md' }: ZampaLogoProps) {
   return (
     <span className={`inline-flex items-center gap-2.5 select-none ${className}`}>
       <span
-        className={`${dimensions.box} rounded-xl bg-[#F97316] text-white inline-flex items-center justify-center shadow-sm shrink-0`}
+        className={`${dimensions.box} rounded-xl bg-[#C2410C] text-white inline-flex items-center justify-center shadow-sm shrink-0`}
         aria-hidden="true"
       >
         <svg
@@ -33,7 +33,7 @@ export function ZampaLogo({ className = '', size = 'md' }: ZampaLogoProps) {
       <span
         className={`font-display ${dimensions.text} font-bold tracking-tight text-[#1C1917] whitespace-nowrap`}
       >
-        Zampa <span className="text-[#F97316]">Club</span>
+        Zampa <span className="text-[#C2410C]">Club</span>
       </span>
     </span>
   );

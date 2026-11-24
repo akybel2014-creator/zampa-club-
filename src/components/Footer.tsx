@@ -31,7 +31,7 @@ export function Footer({
   const footerCategories = wooCategories.filter((c) => c.parent === 0).slice(0, 6);
 
   return (
-    <footer className="bg-white border-t border-[#E7E5E4] mt-16">
+    <footer className="defer-section bg-white border-t border-[#E7E5E4] mt-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-10 lg:gap-8">
           {/* Brand & Newsletter */}
@@ -48,14 +48,14 @@ export function Footer({
                 <h3 className="font-display text-base font-bold text-[#1C1917]">
                   Get 10% off your first order
                 </h3>
-                <span className="text-xs font-semibold text-[#0D9488]">Club Newsletter</span>
+                <span className="text-xs font-semibold text-[#0F766E]">Club Newsletter</span>
               </div>
               <p className="text-xs text-[#57534E]">
                 Unlock your welcome discount and weekly curated pet finds. Zero spam.
               </p>
 
               {subscribed ? (
-                <div className="flex items-center gap-2 rounded-xl bg-[#0D9488]/10 border border-[#0D9488]/20 px-3.5 py-2.5 text-sm text-[#0D9488] font-medium">
+                <div className="flex items-center gap-2 rounded-xl bg-[#0F766E]/10 border border-[#0F766E]/25 px-3.5 py-2.5 text-sm text-[#115E59] font-medium">
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>
                     You&apos;re in! Use code{' '}
@@ -74,11 +74,11 @@ export function Footer({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="Enter your email..."
-                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-white border border-[#E7E5E4] text-sm text-[#1C1917] placeholder:text-[#78716C] focus:outline-none focus:ring-2 focus:ring-[#F97316]/30 focus:border-[#F97316]"
+                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-white border border-[#E7E5E4] text-sm text-[#1C1917] placeholder:text-[#78716C] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+                    className="px-4 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
                   >
                     Get 10% Off
                   </button>
@@ -96,7 +96,7 @@ export function Footer({
                   <button
                     type="button"
                     onClick={() => onSelectCategory(cat.slug, undefined, cat.id)}
-                    className="hover:text-[#F97316] transition-colors text-left"
+                    className="hover:text-[#C2410C] transition-colors text-left"
                   >
                     {cat.name}
                   </button>
@@ -116,7 +116,7 @@ export function Footer({
                 <button
                   type="button"
                   onClick={onOpenAccount}
-                  className="hover:text-[#F97316] transition-colors text-left font-medium text-[#1C1917]"
+                  className="hover:text-[#C2410C] transition-colors text-left font-medium text-[#1C1917]"
                 >
                   WooCommerce Connection Status
                 </button>
@@ -124,15 +124,15 @@ export function Footer({
             </ul>
             <div className="pt-2 space-y-1.5 text-xs text-[#57534E]">
               <div className="flex items-center gap-2">
-                <Mail className="w-3.5 h-3.5 text-[#0D9488]" />
+                <Mail className="w-3.5 h-3.5 text-[#0F766E]" />
                 <span>hello@zampaclub.it</span>
               </div>
               <div className="flex items-center gap-2">
-                <Phone className="w-3.5 h-3.5 text-[#0D9488]" />
+                <Phone className="w-3.5 h-3.5 text-[#0F766E]" />
                 <span>Mon–Fri 9am–6pm EST · Pet Lover Support</span>
               </div>
               <div className="flex items-center gap-2">
-                <MapPin className="w-3.5 h-3.5 text-[#0D9488]" />
+                <MapPin className="w-3.5 h-3.5 text-[#0F766E]" />
                 <span>Shipping across the United States</span>
               </div>
             </div>
@@ -156,7 +156,7 @@ export function Footer({
                 )
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-[#0D9488] font-medium pt-1">
+            <div className="flex items-center gap-1.5 text-xs text-[#0F766E] font-medium pt-1">
               <ShieldCheck className="w-4 h-4 shrink-0" />
               <span>256-bit SSL Protected</span>
             </div>

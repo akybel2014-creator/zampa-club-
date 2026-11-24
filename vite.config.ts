@@ -9,6 +9,41 @@ export default defineConfig(() => {
     plugins: [
       react(),
       tailwindcss(),
+      {
+        name: 'inline-entry-css',
+        apply: 'build',
+        enforce: 'post',
+        generateBundle(_options, bundle) {
+          const htmlAsset = bundle['index.html'];
+          if (!htmlAsset || htmlAsset.type !== 'asset') return;
+
+          let html =
+            typeof htmlAsset.source === 'string'
+              ? htmlAsset.source
+              : Buffer.from(htmlAsset.source).toString('utf-8');
+
+          for (const [fileName, chunk] of Object.entries(bundle)) {
+            if (!fileName.endsWith('.css') || chunk.type !== 'asset') continue;
+            const cssText =
+              typeof chunk.source === 'string'
+                ? chunk.source
+                : Buffer.from(chunk.source).toString('utf-8');
+
+            const escapedName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const linkRegex = new RegExp(
+              `<link\\s+[^>]*rel=["']stylesheet["'][^>]*href=["']\\/?${escapedName}["'][^>]*>`,
+              'i'
+            );
+
+            if (linkRegex.test(html)) {
+              html = html.replace(linkRegex, `<style>${cssText}</style>`);
+              delete bundle[fileName];
+            }
+          }
+
+          htmlAsset.source = html;
+        },
+      },
       // Copies src/assets into dist/ so root-relative URLs like
       // "/src/assets/images/..." (e.g. generate_image output) still resolve
       // in production builds. Do not remove.

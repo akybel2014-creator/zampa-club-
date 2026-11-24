@@ -37,7 +37,7 @@ export function ResilientImage({
         role="img"
         aria-label={alt}
       >
-        <PawPrint className="w-8 h-8 text-[#F97316]/60 mb-2" />
+        <PawPrint className="w-8 h-8 text-[#C2410C]/80 mb-2" aria-hidden="true" />
         <span className="text-xs font-medium line-clamp-2 max-w-[18ch]">
           {fallbackLabel || alt}
         </span>

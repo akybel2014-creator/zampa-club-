@@ -69,7 +69,7 @@ export function CartDrawer({
         {/* Drawer Header */}
         <div className="px-6 py-4 border-b border-[#E7E5E4] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <ShoppingBag className="w-5 h-5 text-[#F97316]" />
+            <ShoppingBag className="w-5 h-5 text-[#C2410C]" />
             <h2 className="font-display text-lg font-bold text-[#1C1917]">
               Your Cart ({items.reduce((acc, i) => acc + i.quantity, 0)})
             </h2>
@@ -89,17 +89,17 @@ export function CartDrawer({
           <div className="flex items-center justify-between text-xs font-medium">
             {remainingForFreeShipping > 0 ? (
               <span className="text-[#1C1917] flex items-center gap-1.5">
-                <Truck className="w-4 h-4 text-[#F97316]" />
+                <Truck className="w-4 h-4 text-[#C2410C]" />
                 <span>
                   Add{' '}
-                  <strong className="tabular-nums text-[#F97316]">
+                  <strong className="tabular-nums text-[#C2410C]">
                     {formatUsd(remainingForFreeShipping)}
                   </strong>{' '}
                   more for free shipping
                 </span>
               </span>
             ) : (
-              <span className="text-[#0D9488] font-semibold flex items-center gap-1.5">
+              <span className="text-[#0F766E] font-semibold flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4" />
                 <span>You&apos;ve unlocked free shipping!</span>
               </span>
@@ -109,7 +109,7 @@ export function CartDrawer({
           <div className="w-full h-2 rounded-full bg-[#E7E5E4] overflow-hidden">
             <div
               className={`h-full transition-all duration-300 rounded-full ${
-                remainingForFreeShipping === 0 ? 'bg-[#0D9488]' : 'bg-[#F97316]'
+                remainingForFreeShipping === 0 ? 'bg-[#0F766E]' : 'bg-[#C2410C]'
               }`}
               style={{ width: `${progressPct}%` }}
             />
@@ -132,7 +132,7 @@ export function CartDrawer({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-5 py-2.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold transition-colors"
+                className="px-5 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors"
               >
                 Continue Shopping
               </button>
@@ -219,9 +219,9 @@ export function CartDrawer({
 
           {/* WooCommerce Checkout Bridge Preview Panel */}
           {showCheckoutPreview && items.length > 0 && (
-            <div className="rounded-2xl border border-[#0D9488]/30 bg-[#0D9488]/5 p-4 space-y-3">
+            <div className="rounded-2xl border border-[#0F766E]/30 bg-[#0F766E]/5 p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[#0D9488] flex items-center gap-1.5">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#115E59] flex items-center gap-1.5">
                   <Info className="w-4 h-4" />
                   WooCommerce Checkout Bridge Preview
                 </h4>
@@ -263,7 +263,7 @@ export function CartDrawer({
                   <button
                     type="button"
                     onClick={onOpenAccountConfig}
-                    className="text-[#F97316] font-semibold hover:underline"
+                    className="text-[#C2410C] font-semibold hover:underline"
                   >
                     view PHP snippet
                   </button>
@@ -276,7 +276,7 @@ export function CartDrawer({
                   href={checkoutBridge.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold transition-colors"
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-white text-xs font-bold transition-colors"
                 >
                   <span>Open WooCommerce Checkout</span>
                   <ExternalLink className="w-3.5 h-3.5" />
@@ -300,7 +300,7 @@ export function CartDrawer({
                 <span>Shipping</span>
                 <span className="tabular-nums font-medium text-[#1C1917]">
                   {shippingCost === 0 ? (
-                    <span className="text-[#0D9488] font-semibold">Free</span>
+                    <span className="text-[#0F766E] font-semibold">Free</span>
                   ) : (
                     formatUsd(shippingCost)
                   )}
@@ -317,7 +317,7 @@ export function CartDrawer({
                 href={checkoutBridge.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-bold shadow-sm transition-colors"
+                className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-bold shadow-sm transition-colors"
               >
                 <span>Proceed to Checkout</span>
                 <ArrowRight className="w-4 h-4" />
