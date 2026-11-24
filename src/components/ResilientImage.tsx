@@ -1,11 +1,16 @@
 import { PawPrint } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface ResilientImageProps {
   src: string;
   alt: string;
   className?: string;
   fallbackLabel?: string;
+  loading?: 'eager' | 'lazy';
+  decoding?: 'async' | 'sync' | 'auto';
+  fetchPriority?: 'high' | 'low' | 'auto';
+  width?: number;
+  height?: number;
 }
 
 export function ResilientImage({
@@ -13,8 +18,17 @@ export function ResilientImage({
   alt,
   className = '',
   fallbackLabel,
+  loading = 'lazy',
+  decoding = 'async',
+  fetchPriority,
+  width,
+  height,
 }: ResilientImageProps) {
   const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
 
   if (hasError || !src) {
     return (
@@ -36,7 +50,11 @@ export function ResilientImage({
       src={src}
       alt={alt}
       referrerPolicy="no-referrer"
-      loading="lazy"
+      loading={loading}
+      decoding={decoding}
+      fetchPriority={fetchPriority}
+      width={width}
+      height={height}
       onError={() => setHasError(true)}
       className={className}
     />

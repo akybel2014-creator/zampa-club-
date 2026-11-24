@@ -1,4 +1,4 @@
-import { ArrowUpDown, RotateCcw, SearchX } from 'lucide-react';
+import { AlertCircle, ArrowUpDown, RotateCcw, SearchX } from 'lucide-react';
 import {
   getDescendantCategoryIds,
   sortWooCategories,
@@ -16,6 +16,7 @@ interface CatalogSectionProps {
   allProducts: Product[];
   wooCategories: WooCategory[];
   loading: boolean;
+  errorMessage: string | null;
   activeTab: string;
   activeMacroCategory: MacroCategorySlug | null;
   activeCategoryId: number | null;
@@ -30,6 +31,7 @@ interface CatalogSectionProps {
   ) => void;
   onChangeSort: (sort: SortOption) => void;
   onResetFilters: () => void;
+  onRetry: () => void;
   onOpenProduct: (product: Product) => void;
   onQuickAdd: (product: Product) => void;
 }
@@ -39,6 +41,7 @@ export function CatalogSection({
   allProducts,
   wooCategories,
   loading,
+  errorMessage,
   activeTab,
   activeMacroCategory,
   activeCategoryId,
@@ -49,6 +52,7 @@ export function CatalogSection({
   onSelectCategory,
   onChangeSort,
   onResetFilters,
+  onRetry,
   onOpenProduct,
   onQuickAdd,
 }: CatalogSectionProps) {
@@ -337,6 +341,24 @@ export function CatalogSection({
               </div>
             </div>
           ))}
+        </div>
+      ) : errorMessage && products.length === 0 ? (
+        <div className="rounded-2xl bg-white border border-[#E7E5E4] p-12 text-center max-w-lg mx-auto">
+          <AlertCircle className="w-10 h-10 text-[#F97316] mx-auto mb-3" />
+          <h3 className="font-display text-lg font-bold text-[#1C1917]">
+            Unable to load catalog from WooCommerce
+          </h3>
+          <p className="text-sm text-[#57534E] mt-1 mb-5">
+            {errorMessage}
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-semibold transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Retry Connection</span>
+          </button>
         </div>
       ) : products.length === 0 ? (
         <div className="rounded-2xl bg-white border border-[#E7E5E4] p-12 text-center max-w-lg mx-auto">

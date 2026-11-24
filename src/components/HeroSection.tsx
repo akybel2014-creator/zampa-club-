@@ -1,5 +1,5 @@
 import { ArrowRight, CheckCircle2, HeartHandshake, Lock, Truck } from 'lucide-react';
-import { HERO_ASSETS } from '../data/mockProducts';
+import { HERO_ASSETS } from '../data/storefrontAssets';
 import { MacroCategorySlug } from '../types/shop';
 import { ResilientImage } from './ResilientImage';
 
@@ -21,6 +21,11 @@ export function HeroSection({
           <ResilientImage
             src={HERO_ASSETS.mainBanner}
             alt="Happy Golden Retriever dog and tabby cat relaxing on a sunlit sofa"
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
+            width={1376}
+            height={768}
             className="absolute inset-0 w-full h-full object-cover"
           />
           <div
@@ -70,6 +75,10 @@ export function HeroSection({
             <ResilientImage
               src={HERO_ASSETS.promoDogs}
               alt="French Bulldog wearing an orange ergonomic harness"
+              loading="eager"
+              decoding="async"
+              width={900}
+              height={672}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             />
             <div
@@ -103,6 +112,10 @@ export function HeroSection({
             <ResilientImage
               src={HERO_ASSETS.promoCats}
               alt="British Shorthair cat lounging on a birch wood cat perch"
+              loading="eager"
+              decoding="async"
+              width={900}
+              height={672}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             />
             <div

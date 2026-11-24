@@ -9,8 +9,8 @@ import {
 interface AccountModalProps {
   isOpen: boolean;
   onClose: () => void;
-  sourceMode: 'woocommerce' | 'fallback';
-  categorySourceMode: 'woocommerce' | 'fallback';
+  sourceMode: 'loading' | 'woocommerce' | 'error';
+  categorySourceMode: 'loading' | 'woocommerce' | 'error';
   productCount: number;
   categoryCount: number;
 }
@@ -191,11 +191,19 @@ export function AccountModal({
                     Active Catalog Source:{' '}
                     {sourceMode === 'woocommerce'
                       ? 'WooCommerce REST API Live'
-                      : 'Curated Fallback Catalog'}
+                      : sourceMode === 'loading'
+                        ? 'Connecting to WooCommerce...'
+                        : 'WooCommerce Connection Error'}
                   </div>
                   <p className="text-[#57534E] text-xs leading-relaxed">
                     Products loaded: <strong className="tabular-nums">{productCount}</strong> ·
-                    Categories ({categorySourceMode === 'woocommerce' ? 'Live' : 'Fallback'}):{' '}
+                    Categories (
+                    {categorySourceMode === 'woocommerce'
+                      ? 'Live'
+                      : categorySourceMode === 'loading'
+                        ? 'Loading'
+                        : 'Unavailable'}
+                    ):{' '}
                     <strong className="tabular-nums">{categoryCount}</strong> · Store:{' '}
                     <span className="font-mono">{WOOCOMMERCE_CONFIG.WP_STORE_URL}</span>
                   </p>

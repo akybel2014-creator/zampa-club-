@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AccountModal } from './components/AccountModal';
 import { CartDrawer } from './components/CartDrawer';
 import { CatalogSection } from './components/CatalogSection';
@@ -8,9 +8,9 @@ import { HeroSection } from './components/HeroSection';
 import { ProductModal } from './components/ProductModal';
 import { QuickCategories } from './components/QuickCategories';
 import { WhyZampaAndReviews } from './components/WhyZampaAndReviews';
-import { STATIC_WOO_CATEGORIES } from './data/categories';
 import {
   buildMegaCategoriesFromWoo,
+  clearWooCommerceCache,
   fetchCatalogProducts,
   fetchWooCategories,
   findCategoryBySlugOrAlias,
@@ -25,16 +25,15 @@ import {
   WooCategory,
 } from './types/shop';
 
+export type ConnectionStatus = 'loading' | 'woocommerce' | 'error';
+
 export default function App() {
   const [allProducts, setAllProducts] = useState<Product[]>([]);
-  const [categoryProductsState, setCategoryProductsState] = useState<{
-    categoryId: number;
-    products: Product[];
-  } | null>(null);
-  const [wooCategories, setWooCategories] = useState<WooCategory[]>(STATIC_WOO_CATEGORIES);
-  const [sourceMode, setSourceMode] = useState<'woocommerce' | 'fallback'>('fallback');
+  const [wooCategories, setWooCategories] = useState<WooCategory[]>([]);
+  const [sourceMode, setSourceMode] = useState<ConnectionStatus>('loading');
   const [categorySourceMode, setCategorySourceMode] =
-    useState<'woocommerce' | 'fallback'>('fallback');
+    useState<ConnectionStatus>('loading');
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
 
   const [activeTab, setActiveTab] = useState<string>('all');
@@ -66,6 +65,36 @@ export default function App() {
     }
   }, [cartItems]);
 
+  const loadWooCommerceData = useCallback(async (forceRefresh = false) => {
+    setLoadingCatalog(true);
+    setCatalogError(null);
+    if (forceRefresh) {
+      clearWooCommerceCache();
+    }
+
+    const [prodRes, catRes] = await Promise.all([
+      fetchCatalogProducts(forceRefresh),
+      fetchWooCategories(forceRefresh),
+    ]);
+
+    setAllProducts(prodRes.products);
+    setSourceMode(prodRes.source);
+    setWooCategories(catRes.categories);
+    setCategorySourceMode(catRes.source);
+
+    if (prodRes.source === 'error') {
+      setCatalogError(
+        prodRes.message || 'Unable to load products from WooCommerce.'
+      );
+    } else if (catRes.source === 'error') {
+      setCatalogError(
+        catRes.message || 'Unable to load categories from WooCommerce.'
+      );
+    }
+
+    setLoadingCatalog(false);
+  }, []);
+
   useEffect(() => {
     let active = true;
     Promise.all([fetchCatalogProducts(), fetchWooCategories()]).then(
@@ -75,6 +104,17 @@ export default function App() {
         setSourceMode(prodRes.source);
         setWooCategories(catRes.categories);
         setCategorySourceMode(catRes.source);
+
+        if (prodRes.source === 'error') {
+          setCatalogError(
+            prodRes.message || 'Unable to load products from WooCommerce.'
+          );
+        } else if (catRes.source === 'error') {
+          setCatalogError(
+            catRes.message || 'Unable to load categories from WooCommerce.'
+          );
+        }
+
         setLoadingCatalog(false);
       }
     );
@@ -83,32 +123,9 @@ export default function App() {
     };
   }, []);
 
-  // When a live WooCommerce category ID is selected, fetch /wp-json/wc/v3/products?category=...
-  useEffect(() => {
-    if (!activeCategoryId || sourceMode !== 'woocommerce') {
-      setCategoryProductsState(null);
-      return;
-    }
-
-    let active = true;
-    const requestedId = activeCategoryId;
-    fetchCatalogProducts(requestedId).then((res) => {
-      if (!active) return;
-      if (res.source === 'woocommerce') {
-        setCategoryProductsState({
-          categoryId: requestedId,
-          products: res.products,
-        });
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [activeCategoryId, sourceMode]);
-
   const megaCategories = useMemo(
-    () => buildMegaCategoriesFromWoo(wooCategories, categorySourceMode, allProducts),
-    [wooCategories, categorySourceMode, allProducts]
+    () => buildMegaCategoriesFromWoo(wooCategories, allProducts),
+    [wooCategories, allProducts]
   );
 
   const scrollToCatalog = () => {
@@ -153,7 +170,6 @@ export default function App() {
     setActiveSubFilter(null);
     setActiveTab('all');
     setSearchQuery('');
-    setCategoryProductsState(null);
   };
 
   const handleAddToCart = (
@@ -212,14 +228,7 @@ export default function App() {
   };
 
   const filteredProducts = useMemo(() => {
-    const hasMatchingCategoryProducts =
-      activeCategoryId !== null &&
-      categoryProductsState !== null &&
-      categoryProductsState.categoryId === activeCategoryId;
-
-    let list = hasMatchingCategoryProducts
-      ? [...categoryProductsState.products]
-      : [...allProducts];
+    let list = [...allProducts];
 
     // Special virtual tabs/categories
     if (activeMacroCategory === 'new-arrivals') {
@@ -298,7 +307,6 @@ export default function App() {
     return list;
   }, [
     allProducts,
-    categoryProductsState,
     wooCategories,
     activeCategoryId,
     activeMacroCategory,
@@ -340,7 +348,7 @@ export default function App() {
 
         <QuickCategories
           wooCategories={wooCategories}
-          sourceMode={categorySourceMode}
+          loading={loadingCatalog}
           activeCategorySlug={activeMacroCategory}
           activeCategoryId={activeCategoryId}
           onSelectCategory={handleSelectCategory}
@@ -351,6 +359,7 @@ export default function App() {
           allProducts={allProducts}
           wooCategories={wooCategories}
           loading={loadingCatalog}
+          errorMessage={catalogError}
           activeTab={activeTab}
           activeMacroCategory={activeMacroCategory}
           activeCategoryId={activeCategoryId}
@@ -361,6 +370,7 @@ export default function App() {
           onSelectCategory={handleSelectCategory}
           onChangeSort={setSortBy}
           onResetFilters={handleResetFilters}
+          onRetry={() => loadWooCommerceData(true)}
           onOpenProduct={setSelectedProduct}
           onQuickAdd={handleQuickAdd}
         />

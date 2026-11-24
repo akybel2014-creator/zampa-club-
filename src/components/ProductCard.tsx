@@ -42,6 +42,10 @@ export function ProductCard({
         <ResilientImage
           src={product.images[0]}
           alt={product.name}
+          loading="lazy"
+          decoding="async"
+          width={400}
+          height={400}
           className="w-full h-full object-contain object-center transition-transform duration-300 group-hover:scale-[1.03]"
         />
         {discountPercent > 0 && (

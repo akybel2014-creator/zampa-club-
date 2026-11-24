@@ -68,6 +68,14 @@ export interface MegaCategoryColumn {
   links: MegaCategoryLink[];
 }
 
+export interface MegaSubcategoryNode {
+  id: number;
+  name: string;
+  slug: string;
+  count: number;
+  children?: MegaSubcategoryNode[];
+}
+
 export interface MegaCategory {
   id?: number;
   slug: MacroCategorySlug;
@@ -85,6 +93,7 @@ export interface MegaCategory {
     | 'Star'
     | 'Tag';
   columns: MegaCategoryColumn[];
+  subcategories?: MegaSubcategoryNode[];
   featuredProductId?: number;
 }
 

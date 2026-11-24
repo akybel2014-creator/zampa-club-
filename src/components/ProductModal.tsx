@@ -1,6 +1,7 @@
 import { Check, Minus, Plus, ShieldCheck, ShoppingBag, Star, Truck, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { formatUsd } from '../config/woocommerce';
+import { fetchProductVariations } from '../services/wooCommerceService';
 import { Product, ProductVariation } from '../types/shop';
 import { ResilientImage } from './ResilientImage';
 
@@ -17,21 +18,41 @@ export function ProductModal({
 }: ProductModalProps) {
   const [selectedImageIdx, setSelectedImageIdx] = useState(0);
   const [selectedVariationId, setSelectedVariationId] = useState<number | null>(null);
+  const [liveVariations, setLiveVariations] = useState<ProductVariation[] | null>(null);
   const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
-    if (product) {
-      setSelectedImageIdx(0);
-      setSelectedVariationId(product.default_variation_id);
-      setQuantity(1);
+    if (!product) {
+      setLiveVariations(null);
+      return;
     }
+
+    setSelectedImageIdx(0);
+    setSelectedVariationId(product.default_variation_id);
+    setLiveVariations(null);
+    setQuantity(1);
+
+    if (!product.hasVariations) return;
+
+    let active = true;
+    fetchProductVariations(product.id, product.price, product.regular_price).then(
+      (vars) => {
+        if (!active || !vars || vars.length === 0) return;
+        setLiveVariations(vars);
+        setSelectedVariationId(vars[0].variation_id);
+      }
+    );
+    return () => {
+      active = false;
+    };
   }, [product]);
 
   if (!product) return null;
 
+  const variations = liveVariations || product.variations;
   const activeVariation =
-    product.variations.find((v) => v.variation_id === selectedVariationId) ||
-    product.variations[0];
+    variations.find((v) => v.variation_id === selectedVariationId) ||
+    variations[0];
 
   const activePrice = activeVariation?.price ?? product.price;
   const activeRegular = activeVariation?.regular_price ?? product.regular_price;
@@ -83,6 +104,10 @@ export function ProductModal({
                 <ResilientImage
                   src={product.images[selectedImageIdx] || product.images[0]}
                   alt={product.name}
+                  loading="lazy"
+                  decoding="async"
+                  width={600}
+                  height={600}
                   className="w-full h-full object-contain object-center"
                 />
                 {discountPercent > 0 && (
@@ -99,7 +124,7 @@ export function ProductModal({
                       key={img + idx}
                       type="button"
                       onClick={() => setSelectedImageIdx(idx)}
-                      className={`w-16 h-16 shrink-0 rounded-xl overflow-hidden border-2 bg-white p-1 transition-all ${
+                      className={`w-16 h-16 aspect-square shrink-0 rounded-xl overflow-hidden border-2 bg-white p-1 transition-all ${
                         selectedImageIdx === idx
                           ? 'border-[#F97316] shadow-sm'
                           : 'border-[#E7E5E4] opacity-75 hover:opacity-100'
@@ -108,6 +133,10 @@ export function ProductModal({
                       <ResilientImage
                         src={img}
                         alt={`${product.name} view ${idx + 1}`}
+                        loading="lazy"
+                        decoding="async"
+                        width={64}
+                        height={64}
                         className="w-full h-full object-contain"
                       />
                     </button>
@@ -170,7 +199,7 @@ export function ProductModal({
                 </div>
 
                 <div className="grid grid-cols-1 gap-2">
-                  {product.variations.map((v) => {
+                  {variations.map((v) => {
                     const selected = v.variation_id === activeVariation.variation_id;
                     return (
                       <button

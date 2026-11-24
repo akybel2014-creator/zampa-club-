@@ -1,5 +1,5 @@
 import { Award, CheckCircle2, ShieldCheck, Star, Truck } from 'lucide-react';
-import { VERIFIED_REVIEWS } from '../data/mockProducts';
+import { VERIFIED_REVIEWS } from '../data/storefrontAssets';
 
 export function WhyZampaAndReviews() {
   return (
