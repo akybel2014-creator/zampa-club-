@@ -1,52 +1,34 @@
 export interface WooCommerceConfig {
   WP_STORE_URL: string;
-  WC_CONSUMER_KEY: string;
-  WC_CONSUMER_SECRET: string;
+  WC_PROXY_URL: string;
   FREE_SHIPPING_THRESHOLD: number;
   STANDARD_SHIPPING_COST: number;
   CURRENCY_SYMBOL: string;
 }
 
 /**
- * Configurazione integrazione WordPress + WooCommerce (con prodotti da CJ Dropshipping).
- *
- * Istruzioni rapide:
- * 1. Sostituisci WP_STORE_URL con il dominio del tuo negozio WordPress (senza slash finale).
- * 2. Su WordPress vai in WooCommerce -> Impostazioni -> Avanzate -> API REST
- *    e genera una chiave con permessi "Solo lettura" (Read).
- * 3. Inserisci Consumer Key e Consumer Secret qui sotto (oppure tramite variabili Vite).
+ * Configurazione pubblica frontend per Zampa Club.
+ * Le credenziali private WooCommerce (WC_CONSUMER_KEY / WC_CONSUMER_SECRET)
+ * restano esclusivamente lato server su process.env e non vengono mai esposte al browser.
  */
-export const WP_STORE_URL =
-  import.meta.env.VITE_WP_STORE_URL || 'https://zampaclub.it';
-export const WC_CONSUMER_KEY =
-  import.meta.env.VITE_WC_CONSUMER_KEY ||
-  'ck_6415ed9e4befd8767b6df292f09ddbe14c28155e';
-export const WC_CONSUMER_SECRET =
-  import.meta.env.VITE_WC_CONSUMER_SECRET ||
-  'cs_b51a54fa75005e8216723ffd72256f82408a7c6f';
+export const WP_STORE_URL = (
+  import.meta.env.VITE_WP_STORE_URL || 'https://zampaclub.it'
+).replace(/\/+$/, '');
+
+export const WC_PROXY_URL = (
+  import.meta.env.VITE_WC_PROXY_URL || '/api/woocommerce'
+).replace(/\/+$/, '');
 
 export const WOOCOMMERCE_CONFIG: WooCommerceConfig = {
   WP_STORE_URL,
-  WC_CONSUMER_KEY,
-  WC_CONSUMER_SECRET,
+  WC_PROXY_URL,
   FREE_SHIPPING_THRESHOLD: 39,
   STANDARD_SHIPPING_COST: 4.9,
   CURRENCY_SYMBOL: '$',
 };
 
 export function isWooCommerceConfigured(): boolean {
-  const { WP_STORE_URL: storeUrl, WC_CONSUMER_KEY: key, WC_CONSUMER_SECRET: secret } =
-    WOOCOMMERCE_CONFIG;
-  return (
-    Boolean(storeUrl) &&
-    !storeUrl.includes('tuonegozio-zampaclub.it') &&
-    Boolean(key) &&
-    !key.includes('INCOLLA_QUI') &&
-    !key.includes('INSERISCI') &&
-    Boolean(secret) &&
-    !secret.includes('INCOLLA_QUI') &&
-    !secret.includes('INSERISCI')
-  );
+  return Boolean(WC_PROXY_URL) && Boolean(WP_STORE_URL);
 }
 
 export function formatUsd(amount: number): string {

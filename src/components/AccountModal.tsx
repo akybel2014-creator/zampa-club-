@@ -205,13 +205,16 @@ export function AccountModal({
                         : 'Unavailable'}
                     ):{' '}
                     <strong className="tabular-nums">{categoryCount}</strong> · Store:{' '}
-                    <span className="font-mono">{WOOCOMMERCE_CONFIG.WP_STORE_URL}</span>
+                    <span className="font-mono">{WOOCOMMERCE_CONFIG.WP_STORE_URL}</span> ·
+                    Proxy:{' '}
+                    <span className="font-mono">{WOOCOMMERCE_CONFIG.WC_PROXY_URL}</span>
                   </p>
                   {!configured && (
                     <p className="text-xs text-[#57534E] pt-1">
-                      Replace the read-only API keys in{' '}
-                      <code className="font-mono text-[#1C1917]">src/config/woocommerce.ts</code>{' '}
-                      with your WooCommerce Consumer Key &amp; Secret.
+                      Configure <code className="font-mono text-[#1C1917]">VITE_WC_PROXY_URL</code>{' '}
+                      or set <code className="font-mono text-[#1C1917]">WC_CONSUMER_KEY</code> and{' '}
+                      <code className="font-mono text-[#1C1917]">WC_CONSUMER_SECRET</code> in server
+                      environment variables.
                     </p>
                   )}
                 </div>

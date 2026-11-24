@@ -44,24 +44,45 @@ interface WooApiVariation {
   image?: { src: string };
 }
 
+interface WooStoreApiPrices {
+  price?: string;
+  regular_price?: string;
+  sale_price?: string;
+  currency_minor_unit?: number;
+}
+
+interface WooStoreApiAttribute {
+  name: string;
+  terms?: { name: string; slug?: string }[];
+  options?: string[];
+}
+
+interface WooStoreApiVariation {
+  id: number;
+  attributes?: { name: string; value?: string; option?: string }[];
+}
+
 interface WooApiProduct {
   id: number;
   slug: string;
   name: string;
   type?: string;
-  price: string;
-  regular_price: string;
-  sale_price: string;
+  sku?: string;
+  price?: string;
+  regular_price?: string;
+  sale_price?: string;
+  prices?: WooStoreApiPrices;
   on_sale?: boolean;
-  average_rating: string;
-  rating_count: number;
-  total_sales: number;
-  short_description: string;
-  description: string;
-  images: { src: string; alt?: string }[];
-  categories: { id: number; name: string; slug: string }[];
-  variations?: number[];
-  attributes?: { name: string; options: string[] }[];
+  average_rating?: string;
+  rating_count?: number;
+  review_count?: number;
+  total_sales?: number;
+  short_description?: string;
+  description?: string;
+  images?: { src: string; alt?: string }[];
+  categories?: { id: number; name: string; slug: string }[];
+  variations?: (number | WooStoreApiVariation)[];
+  attributes?: WooStoreApiAttribute[];
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -71,6 +92,10 @@ const CATEGORIES_CACHE_KEY = 'zampaclub_wc_categories_v1';
 let memoryProductsCache: { ts: number; data: Product[] } | null = null;
 let memoryCategoriesCache: { ts: number; data: WooCategory[] } | null = null;
 const memoryVariationsCache = new Map<number, ProductVariation[]>();
+
+let inFlightProductsPromise: Promise<CatalogFetchResult> | null = null;
+let inFlightCategoriesPromise: Promise<CategoriesFetchResult> | null = null;
+const inFlightVariationPromises = new Map<number, Promise<ProductVariation[] | null>>();
 
 function readSessionCache<T>(key: string): T | null {
   try {
@@ -136,13 +161,69 @@ export function getCachedCatalogSnapshot(): {
   return { products, categories };
 }
 
-async function fetchJsonWithRetry<T>(
-  url: string,
-  { timeoutMs = 20000, maxRetries = 2 }: { timeoutMs?: number; maxRetries?: number } = {}
-): Promise<T> {
-  let lastError: Error = new Error('Network error');
+class WooNetworkError extends Error {
+  readonly status?: number;
+  readonly isCorsOrNetwork: boolean;
+  readonly isTimeout: boolean;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  constructor(
+    message: string,
+    options: { status?: number; isCorsOrNetwork?: boolean; isTimeout?: boolean } = {}
+  ) {
+    super(message);
+    this.name = 'WooNetworkError';
+    this.status = options.status;
+    this.isCorsOrNetwork = Boolean(options.isCorsOrNetwork);
+    this.isTimeout = Boolean(options.isTimeout);
+  }
+}
+
+function buildProxyEndpoint(
+  path: string,
+  params: Record<string, string> = {}
+): string {
+  const base = WOOCOMMERCE_CONFIG.WC_PROXY_URL.replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const fullPath = `${base}${normalizedPath}`;
+
+  const url = /^https?:\/\//i.test(fullPath)
+    ? new URL(fullPath)
+    : new URL(
+        fullPath,
+        typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+      );
+
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.set(k, v);
+  }
+  return url.toString();
+}
+
+function buildDevStoreApiFallbackUrl(
+  path: string,
+  params: Record<string, string> = {}
+): string {
+  const storeBase = WOOCOMMERCE_CONFIG.WP_STORE_URL.replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const url = new URL(`${storeBase}/wp-json/wc/store/v1${normalizedPath}`);
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.set(k, v);
+  }
+  return url.toString();
+}
+
+/**
+ * Fetches JSON cleanly without infinite retry loops:
+ * - Never retries CORS/network TypeErrors, timeouts, 4xx errors (except 429), or non-JSON responses.
+ * - Allows at most 1 bounded retry on transient 429 or 502/503/504 responses.
+ */
+async function fetchJsonBounded<T>(
+  url: string,
+  { timeoutMs = 15000, maxRetries = 1 }: { timeoutMs?: number; maxRetries?: number } = {}
+): Promise<T> {
+  const boundedRetries = Math.min(Math.max(0, maxRetries), 1);
+
+  for (let attempt = 0; attempt <= boundedRetries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -154,28 +235,78 @@ async function fetchJsonWithRetry<T>(
       });
       clearTimeout(timer);
 
-      if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
-        const delayMs = 1200 * (attempt + 1);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const isTransientStatus =
+        response.status === 429 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504;
+
+      if (isTransientStatus && attempt < boundedRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
         continue;
       }
 
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new WooNetworkError(
+          response.ok
+            ? 'Proxy endpoint returned non-JSON content'
+            : `HTTP ${response.status}`,
+          { status: response.status || 502 }
+        );
+      }
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        let serverErrorMsg = `HTTP ${response.status}`;
+        try {
+          const errBody = (await response.json()) as { error?: string; message?: string };
+          if (errBody?.error) serverErrorMsg = errBody.error;
+          else if (errBody?.message) serverErrorMsg = errBody.message;
+        } catch {
+          // Keep HTTP status fallback
+        }
+        throw new WooNetworkError(serverErrorMsg, { status: response.status });
       }
 
       return (await response.json()) as T;
     } catch (err) {
       clearTimeout(timer);
-      lastError = err instanceof Error ? err : new Error('Request failed');
-      if (attempt < maxRetries) {
-        const delayMs = 1000 * (attempt + 1);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (err instanceof WooNetworkError) {
+        throw err;
       }
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new WooNetworkError('Request timed out while contacting catalog proxy.', {
+          isTimeout: true,
+        });
+      }
+      // Browser fetch throws TypeError on CORS blocks or unreachable hosts — fail fast without looping
+      throw new WooNetworkError(
+        'Network or CORS error while reaching WooCommerce endpoint.',
+        { isCorsOrNetwork: true }
+      );
     }
   }
 
-  throw lastError;
+  throw new WooNetworkError('Unable to load WooCommerce data.');
+}
+
+async function fetchWithDevStoreFallback<T>(
+  proxyPath: string,
+  proxyParams: Record<string, string>,
+  devStorePath: string,
+  devStoreParams: Record<string, string> = {}
+): Promise<T> {
+  const proxyUrl = buildProxyEndpoint(proxyPath, proxyParams);
+  try {
+    return await fetchJsonBounded<T>(proxyUrl, { timeoutMs: 15000, maxRetries: 1 });
+  } catch (proxyErr) {
+    // Only in local development, allow an unauthenticated public Store API fallback if proxy isn't active
+    if (import.meta.env.DEV) {
+      const storeUrl = buildDevStoreApiFallbackUrl(devStorePath, devStoreParams);
+      return await fetchJsonBounded<T>(storeUrl, { timeoutMs: 15000, maxRetries: 0 });
+    }
+    throw proxyErr;
+  }
 }
 
 function stripHtml(html: string): string {
@@ -187,6 +318,11 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
     .replace(/&#039;/g, "'")
+    .replace(/&#8217;/g, "'")
+    .replace(/&#8220;/g, '"')
+    .replace(/&#8221;/g, '"')
+    .replace(/&ndash;/g, '–')
+    .replace(/&mdash;/g, '—')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>');
 }
@@ -300,6 +436,15 @@ function parsePrice(val: string | undefined): number {
   return Number.isFinite(num) && num > 0 ? num : 0;
 }
 
+function parseMinorUnitPrice(
+  val: string | undefined,
+  minorUnit = 2
+): number {
+  const raw = parseFloat(val || '');
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return raw / Math.pow(10, minorUnit);
+}
+
 function mapVariationList(
   productId: number,
   rawVariations: WooApiVariation[],
@@ -330,15 +475,56 @@ function mapVariationList(
   });
 }
 
-function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
-  const salePrice = parsePrice(wp.sale_price);
-  const currentPrice = parsePrice(wp.price);
-  const regularPrice = parsePrice(wp.regular_price);
+function mapStoreVariationsToList(
+  productId: number,
+  rawVariations: WooStoreApiVariation[],
+  fallbackPrice: number,
+  fallbackRegular?: number
+): ProductVariation[] {
+  return rawVariations.map((v, idx) => {
+    const attrs = v.attributes || [];
+    const labelParts = attrs
+      .map((a) => {
+        const val = a.value ?? a.option ?? '';
+        return val
+          ? `${decodeHtmlEntities(a.name)}: ${decodeHtmlEntities(val)}`
+          : '';
+      })
+      .filter(Boolean);
 
-  const effectivePrice =
-    (salePrice > 0 ? salePrice : currentPrice || regularPrice) || 29.9;
-  const effectiveRegular =
-    regularPrice > effectivePrice ? regularPrice : undefined;
+    return {
+      variation_id: v.id,
+      label: labelParts.length > 0 ? labelParts.join(' · ') : `Option ${idx + 1}`,
+      size: attrs[0]?.value ?? attrs[0]?.option,
+      color: attrs[1]?.value ?? attrs[1]?.option,
+      price: fallbackPrice,
+      regular_price: fallbackRegular,
+      sku: `WC-${productId}-${v.id}`,
+      in_stock: true,
+    };
+  });
+}
+
+function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
+  let effectivePrice = 29.9;
+  let effectiveRegular: number | undefined;
+
+  if (wp.prices) {
+    const minorUnit = wp.prices.currency_minor_unit ?? 2;
+    const salePrice = parseMinorUnitPrice(wp.prices.sale_price, minorUnit);
+    const currentPrice = parseMinorUnitPrice(wp.prices.price, minorUnit);
+    const regularPrice = parseMinorUnitPrice(wp.prices.regular_price, minorUnit);
+    effectivePrice =
+      (salePrice > 0 ? salePrice : currentPrice || regularPrice) || 29.9;
+    effectiveRegular = regularPrice > effectivePrice ? regularPrice : undefined;
+  } else {
+    const salePrice = parsePrice(wp.sale_price);
+    const currentPrice = parsePrice(wp.price);
+    const regularPrice = parsePrice(wp.regular_price);
+    effectivePrice =
+      (salePrice > 0 ? salePrice : currentPrice || regularPrice) || 29.9;
+    effectiveRegular = regularPrice > effectivePrice ? regularPrice : undefined;
+  }
 
   const cleanCategories = (wp.categories || []).map((c) => ({
     id: c.id,
@@ -349,31 +535,54 @@ function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
 
   const isVariable = wp.type === 'variable' || (wp.variations && wp.variations.length > 0);
   const firstAttr = wp.attributes?.[0];
+  const firstAttrOptions =
+    firstAttr?.options && firstAttr.options.length > 0
+      ? firstAttr.options
+      : (firstAttr?.terms || []).map((t) => t.name);
 
   let variations: ProductVariation[];
   let hasVariations = false;
 
-  if (isVariable && firstAttr && firstAttr.options.length > 0) {
+  const rawStoreVars = (wp.variations || []).filter(
+    (v): v is WooStoreApiVariation => typeof v === 'object' && v !== null && 'id' in v
+  );
+
+  if (rawStoreVars.length > 0) {
     hasVariations = true;
-    variations = firstAttr.options.map((opt, idx) => ({
-      variation_id: wp.variations?.[idx] || wp.id,
-      label: `${decodeHtmlEntities(firstAttr.name)}: ${decodeHtmlEntities(opt)}`,
-      size: opt,
-      price: effectivePrice,
-      regular_price: effectiveRegular,
-      sku: `WC-${wp.id}-${idx + 1}`,
-      in_stock: true,
-    }));
+    variations = mapStoreVariationsToList(
+      wp.id,
+      rawStoreVars,
+      effectivePrice,
+      effectiveRegular
+    );
+  } else if (isVariable && firstAttr && firstAttrOptions.length > 0) {
+    hasVariations = true;
+    variations = firstAttrOptions.map((opt, idx) => {
+      const rawVar = wp.variations?.[idx];
+      const varId = typeof rawVar === 'number' ? rawVar : wp.id;
+      return {
+        variation_id: varId,
+        label: `${decodeHtmlEntities(firstAttr.name)}: ${decodeHtmlEntities(opt)}`,
+        size: opt,
+        price: effectivePrice,
+        regular_price: effectiveRegular,
+        sku: `WC-${wp.id}-${idx + 1}`,
+        in_stock: true,
+      };
+    });
   } else if (isVariable && wp.variations && wp.variations.length > 0) {
     hasVariations = true;
-    variations = wp.variations.map((varId, idx) => ({
-      variation_id: varId,
-      label: `Option ${idx + 1}`,
-      price: effectivePrice,
-      regular_price: effectiveRegular,
-      sku: `WC-${wp.id}-${varId}`,
-      in_stock: true,
-    }));
+    variations = wp.variations.map((v, idx) => {
+      const varId = typeof v === 'number' ? v : v.id;
+      return {
+        variation_id: varId,
+        label: `Option ${idx + 1}`,
+        price: effectivePrice,
+        regular_price: effectiveRegular,
+        sku: `WC-${wp.id}-${varId}`,
+        in_stock: true,
+      };
+    });
   } else {
     hasVariations = false;
     variations = [
@@ -382,7 +591,7 @@ function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
         label: 'Standard',
         price: effectivePrice,
         regular_price: effectiveRegular,
-        sku: `WC-${wp.id}`,
+        sku: wp.sku || `WC-${wp.id}`,
         in_stock: true,
       },
     ];
@@ -391,6 +600,8 @@ function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
   const uniqueImages = Array.from(
     new Set((wp.images || []).map((img) => img.src).filter(Boolean))
   );
+
+  const ratingCount = wp.rating_count ?? wp.review_count ?? 0;
 
   return {
     id: wp.id,
@@ -405,7 +616,7 @@ function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
     price: effectivePrice,
     regular_price: effectiveRegular,
     rating: parseFloat(wp.average_rating || '4.8') || 4.8,
-    reviews_count: wp.rating_count || 0,
+    reviews_count: ratingCount,
     sales_count: wp.total_sales || 0,
     short_description:
       decodeHtmlEntities(stripHtml(wp.short_description || '')) ||
@@ -431,7 +642,7 @@ function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
 }
 
 /**
- * Fetches live product categories exclusively from WooCommerce REST API v3.
+ * Fetches live product categories via configured backend proxy (never exposing consumer_key/secret in browser).
  */
 export async function fetchWooCategories(
   forceRefresh = false
@@ -440,7 +651,7 @@ export async function fetchWooCategories(
     return {
       categories: [],
       source: 'error',
-      message: 'WooCommerce API credentials are not configured.',
+      message: 'WooCommerce proxy endpoint is not configured.',
     };
   }
 
@@ -459,52 +670,64 @@ export async function fetchWooCategories(
         source: 'woocommerce',
       };
     }
-  }
-
-  try {
-    const baseUrl = WOOCOMMERCE_CONFIG.WP_STORE_URL.replace(/\/+$/, '');
-    const endpoint = new URL(`${baseUrl}/wp-json/wc/v3/products/categories`);
-    endpoint.searchParams.set('per_page', '100');
-    endpoint.searchParams.set('hide_empty', 'true');
-    endpoint.searchParams.set('consumer_key', WOOCOMMERCE_CONFIG.WC_CONSUMER_KEY);
-    endpoint.searchParams.set('consumer_secret', WOOCOMMERCE_CONFIG.WC_CONSUMER_SECRET);
-
-    const rawCats = await fetchJsonWithRetry<WooApiCategory[]>(endpoint.toString());
-    if (!Array.isArray(rawCats)) {
-      throw new Error('Invalid categories response from WooCommerce');
+    if (inFlightCategoriesPromise) {
+      return inFlightCategoriesPromise;
     }
-
-    const excludedSlugs = new Set(['uncategorized', 'senza-categoria']);
-    const mapped: WooCategory[] = sortWooCategories(
-      rawCats
-        .filter((c) => !excludedSlugs.has((c.slug || '').toLowerCase()))
-        .map((c) => ({
-          id: c.id,
-          name: decodeHtmlEntities(c.name),
-          slug: c.slug,
-          parent: c.parent || 0,
-          count: c.count || 0,
-          image: c.image?.src || undefined,
-        }))
-    );
-
-    memoryCategoriesCache = { ts: Date.now(), data: mapped };
-    writeSessionCache(CATEGORIES_CACHE_KEY, mapped);
-
-    return {
-      categories: mapped,
-      source: 'woocommerce',
-    };
-  } catch (err) {
-    return {
-      categories: [],
-      source: 'error',
-      message:
-        err instanceof Error
-          ? `Unable to load WooCommerce categories (${err.message}).`
-          : 'Unable to load WooCommerce categories.',
-    };
   }
+
+  const requestPromise = (async (): Promise<CategoriesFetchResult> => {
+    try {
+      const rawCats = await fetchWithDevStoreFallback<WooApiCategory[]>(
+        '/products/categories',
+        { per_page: '100', hide_empty: 'true' },
+        '/products/categories',
+        { per_page: '100' }
+      );
+
+      if (!Array.isArray(rawCats)) {
+        throw new Error('Invalid categories response from WooCommerce proxy');
+      }
+
+      const excludedSlugs = new Set(['uncategorized', 'senza-categoria']);
+      const mapped: WooCategory[] = sortWooCategories(
+        rawCats
+          .filter((c) => !excludedSlugs.has((c.slug || '').toLowerCase()))
+          .map((c) => ({
+            id: c.id,
+            name: decodeHtmlEntities(c.name),
+            slug: c.slug,
+            parent: c.parent || 0,
+            count: c.count || 0,
+            image: c.image?.src || undefined,
+          }))
+      );
+
+      memoryCategoriesCache = { ts: Date.now(), data: mapped };
+      writeSessionCache(CATEGORIES_CACHE_KEY, mapped);
+
+      return {
+        categories: mapped,
+        source: 'woocommerce',
+      };
+    } catch (err) {
+      return {
+        categories: [],
+        source: 'error',
+        message:
+          err instanceof Error
+            ? `Unable to load WooCommerce categories (${err.message}).`
+            : 'Unable to load WooCommerce categories.',
+      };
+    } finally {
+      inFlightCategoriesPromise = null;
+    }
+  })();
+
+  if (!forceRefresh) {
+    inFlightCategoriesPromise = requestPromise;
+  }
+
+  return requestPromise;
 }
 
 function buildSubcategoryTree(
@@ -638,7 +861,7 @@ export function buildMegaCategoriesFromWoo(
 }
 
 /**
- * Fetches live published products exclusively from WooCommerce REST API v3.
+ * Fetches live published products via configured backend proxy.
  * Avoids firing N concurrent /variations requests on initial load to prevent API rate limiting (HTTP 429).
  */
 export async function fetchCatalogProducts(
@@ -648,7 +871,7 @@ export async function fetchCatalogProducts(
     return {
       products: [],
       source: 'error',
-      message: 'WooCommerce API credentials are not configured.',
+      message: 'WooCommerce proxy endpoint is not configured.',
     };
   }
 
@@ -667,39 +890,51 @@ export async function fetchCatalogProducts(
         source: 'woocommerce',
       };
     }
-  }
-
-  try {
-    const baseUrl = WOOCOMMERCE_CONFIG.WP_STORE_URL.replace(/\/+$/, '');
-    const endpoint = new URL(`${baseUrl}/wp-json/wc/v3/products`);
-    endpoint.searchParams.set('per_page', '100');
-    endpoint.searchParams.set('status', 'publish');
-    endpoint.searchParams.set('consumer_key', WOOCOMMERCE_CONFIG.WC_CONSUMER_KEY);
-    endpoint.searchParams.set('consumer_secret', WOOCOMMERCE_CONFIG.WC_CONSUMER_SECRET);
-
-    const rawProducts = await fetchJsonWithRetry<WooApiProduct[]>(endpoint.toString());
-    if (!Array.isArray(rawProducts)) {
-      throw new Error('Invalid products response from WooCommerce');
+    if (inFlightProductsPromise) {
+      return inFlightProductsPromise;
     }
-
-    const mapped = rawProducts.map(mapWooProductToStoreProduct);
-    memoryProductsCache = { ts: Date.now(), data: mapped };
-    writeSessionCache(PRODUCTS_CACHE_KEY, mapped);
-
-    return {
-      products: mapped,
-      source: 'woocommerce',
-    };
-  } catch (err) {
-    return {
-      products: [],
-      source: 'error',
-      message:
-        err instanceof Error
-          ? `Unable to load WooCommerce catalog (${err.message}).`
-          : 'Unable to load WooCommerce catalog.',
-    };
   }
+
+  const requestPromise = (async (): Promise<CatalogFetchResult> => {
+    try {
+      const rawProducts = await fetchWithDevStoreFallback<WooApiProduct[]>(
+        '/products',
+        { per_page: '100', status: 'publish' },
+        '/products',
+        { per_page: '100' }
+      );
+
+      if (!Array.isArray(rawProducts)) {
+        throw new Error('Invalid products response from WooCommerce proxy');
+      }
+
+      const mapped = rawProducts.map(mapWooProductToStoreProduct);
+      memoryProductsCache = { ts: Date.now(), data: mapped };
+      writeSessionCache(PRODUCTS_CACHE_KEY, mapped);
+
+      return {
+        products: mapped,
+        source: 'woocommerce',
+      };
+    } catch (err) {
+      return {
+        products: [],
+        source: 'error',
+        message:
+          err instanceof Error
+            ? `Unable to load WooCommerce catalog (${err.message}).`
+            : 'Unable to load WooCommerce catalog.',
+      };
+    } finally {
+      inFlightProductsPromise = null;
+    }
+  })();
+
+  if (!forceRefresh) {
+    inFlightProductsPromise = requestPromise;
+  }
+
+  return requestPromise;
 }
 
 /**
@@ -715,25 +950,58 @@ export async function fetchProductVariations(
   const cached = memoryVariationsCache.get(productId);
   if (cached) return cached;
 
-  try {
-    const baseUrl = WOOCOMMERCE_CONFIG.WP_STORE_URL.replace(/\/+$/, '');
-    const endpoint = new URL(`${baseUrl}/wp-json/wc/v3/products/${productId}/variations`);
-    endpoint.searchParams.set('per_page', '50');
-    endpoint.searchParams.set('consumer_key', WOOCOMMERCE_CONFIG.WC_CONSUMER_KEY);
-    endpoint.searchParams.set('consumer_secret', WOOCOMMERCE_CONFIG.WC_CONSUMER_SECRET);
+  const existingInFlight = inFlightVariationPromises.get(productId);
+  if (existingInFlight) return existingInFlight;
 
-    const rawVars = await fetchJsonWithRetry<WooApiVariation[]>(endpoint.toString(), {
-      timeoutMs: 12000,
-      maxRetries: 1,
-    });
-    if (!Array.isArray(rawVars) || rawVars.length === 0) return null;
+  const requestPromise = (async (): Promise<ProductVariation[] | null> => {
+    try {
+      const rawPayload = await fetchWithDevStoreFallback<
+        WooApiVariation[] | WooApiProduct
+      >(
+        `/products/${productId}/variations`,
+        { per_page: '50' },
+        `/products/${productId}`
+      );
 
-    const mapped = mapVariationList(productId, rawVars, fallbackPrice, fallbackRegular);
-    memoryVariationsCache.set(productId, mapped);
-    return mapped;
-  } catch {
-    return null;
-  }
+      let mapped: ProductVariation[] | null = null;
+      if (Array.isArray(rawPayload) && rawPayload.length > 0) {
+        mapped = mapVariationList(
+          productId,
+          rawPayload,
+          fallbackPrice,
+          fallbackRegular
+        );
+      } else if (
+        rawPayload &&
+        !Array.isArray(rawPayload) &&
+        Array.isArray(rawPayload.variations)
+      ) {
+        const storeVars = rawPayload.variations.filter(
+          (v): v is WooStoreApiVariation => typeof v === 'object' && v !== null && 'id' in v
+        );
+        if (storeVars.length > 0) {
+          mapped = mapStoreVariationsToList(
+            productId,
+            storeVars,
+            fallbackPrice,
+            fallbackRegular
+          );
+        }
+      }
+
+      if (mapped && mapped.length > 0) {
+        memoryVariationsCache.set(productId, mapped);
+      }
+      return mapped;
+    } catch {
+      return null;
+    } finally {
+      inFlightVariationPromises.delete(productId);
+    }
+  })();
+
+  inFlightVariationPromises.set(productId, requestPromise);
+  return requestPromise;
 }
 
 /**
