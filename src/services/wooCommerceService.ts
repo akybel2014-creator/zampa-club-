@@ -100,6 +100,76 @@ function inferIconName(slug: string, name: string): MegaCategory['iconName'] {
   return 'Dog';
 }
 
+const CATEGORY_SORT_PRIORITY: Record<string, number> = {
+  dog: 1,
+  dogs: 1,
+  cani: 1,
+  cat: 2,
+  cats: 2,
+  gatti: 2,
+  'home-comfort': 3,
+  'travel-gear': 4,
+  'travel-carriers': 4,
+  'food-treats': 5,
+  'grooming-care': 6,
+  'smart-pet-tech': 7,
+  'small-pets': 8,
+};
+
+const SLUG_ALIASES: Record<string, string[]> = {
+  dog: ['dog', 'dogs', 'cani'],
+  dogs: ['dogs', 'dog', 'cani'],
+  cat: ['cat', 'cats', 'gatti'],
+  cats: ['cats', 'cat', 'gatti'],
+  'travel-carriers': ['travel-carriers', 'travel-gear'],
+  'travel-gear': ['travel-gear', 'travel-carriers'],
+};
+
+export function sortWooCategories(categories: WooCategory[]): WooCategory[] {
+  return [...categories].sort((a, b) => {
+    const pa = CATEGORY_SORT_PRIORITY[a.slug.toLowerCase()] ?? 99;
+    const pb = CATEGORY_SORT_PRIORITY[b.slug.toLowerCase()] ?? 99;
+    if (pa !== pb) return pa - pb;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+export function getDescendantCategoryIds(
+  rootId: number,
+  categories: WooCategory[]
+): Set<number> {
+  const ids = new Set<number>([rootId]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const cat of categories) {
+      if (cat.parent !== 0 && ids.has(cat.parent) && !ids.has(cat.id)) {
+        ids.add(cat.id);
+        added = true;
+      }
+    }
+  }
+  return ids;
+}
+
+export function findCategoryBySlugOrAlias(
+  categories: WooCategory[],
+  slug: string
+): WooCategory | undefined {
+  const normalized = slug.toLowerCase();
+  const exact = categories.find((c) => c.slug.toLowerCase() === normalized);
+  if (exact) return exact;
+
+  const aliases = SLUG_ALIASES[normalized];
+  if (aliases) {
+    for (const alias of aliases) {
+      const match = categories.find((c) => c.slug.toLowerCase() === alias);
+      if (match) return match;
+    }
+  }
+  return undefined;
+}
+
 function mapCategorySlug(categories: { slug: string; name: string }[]): {
   slug: MacroCategorySlug;
   label: string;
@@ -287,16 +357,19 @@ export async function fetchWooCategories(): Promise<CategoriesFetchResult> {
       };
     }
 
-    const mapped: WooCategory[] = rawCats
-      .filter((c) => c.slug !== 'uncategorized')
-      .map((c) => ({
-        id: c.id,
-        name: decodeHtmlEntities(c.name),
-        slug: c.slug,
-        parent: c.parent || 0,
-        count: c.count || 0,
-        image: c.image?.src || undefined,
-      }));
+    const excludedSlugs = new Set(['uncategorized', 'senza-categoria']);
+    const mapped: WooCategory[] = sortWooCategories(
+      rawCats
+        .filter((c) => !excludedSlugs.has((c.slug || '').toLowerCase()))
+        .map((c) => ({
+          id: c.id,
+          name: decodeHtmlEntities(c.name),
+          slug: c.slug,
+          parent: c.parent || 0,
+          count: c.count || 0,
+          image: c.image?.src || undefined,
+        }))
+    );
 
     if (mapped.length === 0) {
       return {
@@ -330,12 +403,15 @@ export function buildMegaCategoriesFromWoo(
     return MEGA_CATEGORIES;
   }
 
-  const parents = wooCategories.filter((c) => c.parent === 0);
-  const topCategories = parents.length > 0 ? parents : wooCategories;
+  const parents = sortWooCategories(wooCategories.filter((c) => c.parent === 0));
+  const topCategories = parents.length > 0 ? parents : sortWooCategories(wooCategories);
 
   return topCategories.slice(0, 8).map((cat) => {
     const children = wooCategories.filter((c) => c.parent === cat.id);
-    const matchingProducts = products.filter((p) => p.categoryIds.includes(cat.id));
+    const matchingIds = getDescendantCategoryIds(cat.id, wooCategories);
+    const matchingProducts = products.filter((p) =>
+      p.categoryIds.some((id) => matchingIds.has(id))
+    );
 
     let columns: MegaCategoryColumn[];
 
@@ -416,7 +492,7 @@ export async function fetchCatalogProducts(
   try {
     const baseUrl = WOOCOMMERCE_CONFIG.WP_STORE_URL.replace(/\/+$/, '');
     const endpoint = new URL(`${baseUrl}/wp-json/wc/v3/products`);
-    endpoint.searchParams.set('per_page', '20');
+    endpoint.searchParams.set('per_page', '50');
     endpoint.searchParams.set('status', 'publish');
     if (categoryId) {
       endpoint.searchParams.set('category', String(categoryId));

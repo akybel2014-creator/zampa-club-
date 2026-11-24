@@ -1,5 +1,9 @@
 import { ArrowUpDown, RotateCcw, SearchX } from 'lucide-react';
 import {
+  getDescendantCategoryIds,
+  sortWooCategories,
+} from '../services/wooCommerceService';
+import {
   MacroCategorySlug,
   Product,
   SortOption,
@@ -9,6 +13,7 @@ import { ProductCard } from './ProductCard';
 
 interface CatalogSectionProps {
   products: Product[];
+  allProducts: Product[];
   wooCategories: WooCategory[];
   loading: boolean;
   activeTab: string;
@@ -18,6 +23,11 @@ interface CatalogSectionProps {
   searchQuery: string;
   sortBy: SortOption;
   onChangeTab: (tabSlug: string, categoryId?: number) => void;
+  onSelectCategory: (
+    slug: MacroCategorySlug,
+    subFilter?: string,
+    categoryId?: number
+  ) => void;
   onChangeSort: (sort: SortOption) => void;
   onResetFilters: () => void;
   onOpenProduct: (product: Product) => void;
@@ -26,6 +36,7 @@ interface CatalogSectionProps {
 
 export function CatalogSection({
   products,
+  allProducts,
   wooCategories,
   loading,
   activeTab,
@@ -35,16 +46,57 @@ export function CatalogSection({
   searchQuery,
   sortBy,
   onChangeTab,
+  onSelectCategory,
   onChangeSort,
   onResetFilters,
   onOpenProduct,
   onQuickAdd,
 }: CatalogSectionProps) {
-  const parentCategories = wooCategories.filter((c) => c.parent === 0);
-  const tabCategories = (parentCategories.length > 0 ? parentCategories : wooCategories).slice(
-    0,
-    4
+  const parentCategories = sortWooCategories(
+    wooCategories.filter((c) => c.parent === 0)
   );
+  const tabCategories = (
+    parentCategories.length > 0 ? parentCategories : sortWooCategories(wooCategories)
+  ).slice(0, 4);
+
+  const activeCategoryObj = activeCategoryId
+    ? wooCategories.find((c) => c.id === activeCategoryId)
+    : undefined;
+
+  const activeParentCategory =
+    activeCategoryObj && activeCategoryObj.parent !== 0
+      ? wooCategories.find((c) => c.id === activeCategoryObj.parent) || activeCategoryObj
+      : activeCategoryObj;
+
+  const activeParentCategoryId = activeParentCategory?.id || null;
+
+  // WooCommerce child categories under the active parent category
+  const childCategories = activeParentCategoryId
+    ? wooCategories.filter((c) => c.parent === activeParentCategoryId)
+    : [];
+
+  // Fallback subcategories derived from products when WooCommerce has no child categories
+  const fallbackSubcategories =
+    activeParentCategoryId && childCategories.length === 0
+      ? Array.from(
+          new Set(
+            allProducts
+              .filter((p) => {
+                const ids = getDescendantCategoryIds(
+                  activeParentCategoryId,
+                  wooCategories
+                );
+                return p.categoryIds.some((id) => ids.has(id));
+              })
+              .flatMap((p) => p.subcategories)
+              .filter(
+                (sub) =>
+                  sub &&
+                  sub.toLowerCase() !== activeParentCategory?.name.toLowerCase()
+              )
+          )
+        )
+      : [];
 
   const filterTabs: { id: string; label: string; categoryId?: number }[] = [
     { id: 'all', label: 'Shop All' },
@@ -63,6 +115,7 @@ export function CatalogSection({
     searchQuery.trim().length > 0;
 
   const activeCategoryName =
+    activeParentCategory?.name ||
     wooCategories.find((c) => c.id === activeCategoryId)?.name ||
     wooCategories.find((c) => c.slug === activeMacroCategory)?.name ||
     (activeMacroCategory === 'deals'
@@ -70,6 +123,11 @@ export function CatalogSection({
       : activeMacroCategory === 'new-arrivals'
         ? 'New Arrivals'
         : activeMacroCategory);
+
+  const activeChildCategoryName =
+    activeCategoryObj && activeCategoryObj.parent !== 0
+      ? activeCategoryObj.name
+      : null;
 
   return (
     <section
@@ -98,11 +156,20 @@ export function CatalogSection({
             className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F4] border border-[#E7E5E4] overflow-x-auto max-w-full"
           >
             {filterTabs.map((tab) => {
-              const isActive =
+              const isDealsActive =
+                tab.id === 'deals' &&
+                (activeTab === 'deals' || activeMacroCategory === 'deals');
+              const isCategoryActive =
+                Boolean(tab.categoryId) &&
+                (activeCategoryId === tab.categoryId ||
+                  activeParentCategoryId === tab.categoryId);
+              const isAllActive =
+                tab.id === 'all' &&
+                !activeCategoryId &&
                 !activeMacroCategory &&
                 !activeSubFilter &&
-                ((tab.categoryId && activeCategoryId === tab.categoryId) ||
-                  (!activeCategoryId && activeTab === tab.id));
+                activeTab === 'all';
+              const isActive = isDealsActive || isCategoryActive || isAllActive;
 
               return (
                 <button
@@ -144,38 +211,112 @@ export function CatalogSection({
         </div>
       </div>
 
-      {/* Active Contextual Filter Strip */}
+      {/* Active Contextual Filter Strip + Subcategories */}
       {hasExtraFilter && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white border border-[#E7E5E4]">
-          <div className="text-sm text-[#57534E] flex flex-wrap items-center gap-2">
-            <span>Active filter:</span>
-            {activeCategoryName && (
-              <strong className="text-[#1C1917]">{activeCategoryName}</strong>
-            )}
-            {activeSubFilter && activeSubFilter !== 'ON_SALE' && (
-              <>
-                <span aria-hidden="true">/</span>
-                <strong className="text-[#F97316]">{activeSubFilter}</strong>
-              </>
-            )}
-            {searchQuery.trim() && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>
-                  Search:{' '}
-                  <strong className="text-[#1C1917]">&ldquo;{searchQuery}&rdquo;</strong>
-                </span>
-              </>
-            )}
+        <div className="mb-6 rounded-xl bg-white border border-[#E7E5E4] px-4 py-3 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-[#57534E] flex flex-wrap items-center gap-2">
+              <span>Active filter:</span>
+              {activeCategoryName && (
+                <strong className="text-[#1C1917]">{activeCategoryName}</strong>
+              )}
+              {(activeChildCategoryName ||
+                (activeSubFilter && activeSubFilter !== 'ON_SALE')) && (
+                <>
+                  <span aria-hidden="true">/</span>
+                  <strong className="text-[#F97316]">
+                    {activeChildCategoryName || activeSubFilter}
+                  </strong>
+                </>
+              )}
+              {searchQuery.trim() && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    Search:{' '}
+                    <strong className="text-[#1C1917]">&ldquo;{searchQuery}&rdquo;</strong>
+                  </span>
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onResetFilters}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#F97316] hover:text-[#EA580C] whitespace-nowrap"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Show All</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onResetFilters}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#F97316] hover:text-[#EA580C] whitespace-nowrap"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Show All</span>
-          </button>
+
+          {activeParentCategory &&
+            (childCategories.length > 0 || fallbackSubcategories.length > 0) && (
+              <div className="pt-2.5 border-t border-[#F5F5F4] flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-[#78716C] mr-1">
+                  {activeParentCategory.name} subcategories:
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onSelectCategory(
+                      activeParentCategory.slug,
+                      undefined,
+                      activeParentCategory.id
+                    )
+                  }
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                    activeCategoryId === activeParentCategory.id && !activeSubFilter
+                      ? 'bg-[#1C1917] text-white border-[#1C1917]'
+                      : 'bg-[#FAFAF9] text-[#57534E] border-[#E7E5E4] hover:border-[#D6D3D1] hover:text-[#1C1917]'
+                  }`}
+                >
+                  All {activeParentCategory.name}
+                </button>
+                {childCategories.map((child) => {
+                  const isChildSelected = activeCategoryId === child.id;
+                  return (
+                    <button
+                      key={child.id}
+                      type="button"
+                      onClick={() =>
+                        onSelectCategory(child.slug, undefined, child.id)
+                      }
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                        isChildSelected
+                          ? 'bg-[#F97316] text-white border-[#F97316]'
+                          : 'bg-[#FAFAF9] text-[#57534E] border-[#E7E5E4] hover:border-[#D6D3D1] hover:text-[#1C1917]'
+                      }`}
+                    >
+                      {child.name} ({child.count})
+                    </button>
+                  );
+                })}
+                {fallbackSubcategories.map((sub) => {
+                  const isSubSelected =
+                    activeSubFilter?.toLowerCase() === sub.toLowerCase();
+                  return (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() =>
+                        onSelectCategory(
+                          activeParentCategory.slug,
+                          sub,
+                          activeParentCategory.id
+                        )
+                      }
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                        isSubSelected
+                          ? 'bg-[#F97316] text-white border-[#F97316]'
+                          : 'bg-[#FAFAF9] text-[#57534E] border-[#E7E5E4] hover:border-[#D6D3D1] hover:text-[#1C1917]'
+                      }`}
+                    >
+                      {sub}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
         </div>
       )}
 

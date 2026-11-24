@@ -13,6 +13,8 @@ import {
   buildMegaCategoriesFromWoo,
   fetchCatalogProducts,
   fetchWooCategories,
+  findCategoryBySlugOrAlias,
+  getDescendantCategoryIds,
 } from './services/wooCommerceService';
 import {
   CartItem,
@@ -25,7 +27,10 @@ import {
 
 export default function App() {
   const [allProducts, setAllProducts] = useState<Product[]>([]);
-  const [categoryProducts, setCategoryProducts] = useState<Product[] | null>(null);
+  const [categoryProductsState, setCategoryProductsState] = useState<{
+    categoryId: number;
+    products: Product[];
+  } | null>(null);
   const [wooCategories, setWooCategories] = useState<WooCategory[]>(STATIC_WOO_CATEGORIES);
   const [sourceMode, setSourceMode] = useState<'woocommerce' | 'fallback'>('fallback');
   const [categorySourceMode, setCategorySourceMode] =
@@ -81,15 +86,19 @@ export default function App() {
   // When a live WooCommerce category ID is selected, fetch /wp-json/wc/v3/products?category=...
   useEffect(() => {
     if (!activeCategoryId || sourceMode !== 'woocommerce') {
-      setCategoryProducts(null);
+      setCategoryProductsState(null);
       return;
     }
 
     let active = true;
-    fetchCatalogProducts(activeCategoryId).then((res) => {
+    const requestedId = activeCategoryId;
+    fetchCatalogProducts(requestedId).then((res) => {
       if (!active) return;
       if (res.source === 'woocommerce') {
-        setCategoryProducts(res.products);
+        setCategoryProductsState({
+          categoryId: requestedId,
+          products: res.products,
+        });
       }
     });
     return () => {
@@ -114,7 +123,7 @@ export default function App() {
     explicitId?: number
   ): number | null => {
     if (explicitId) return explicitId;
-    const match = wooCategories.find((c) => c.slug === slug);
+    const match = findCategoryBySlugOrAlias(wooCategories, slug);
     return match ? match.id : null;
   };
 
@@ -144,7 +153,7 @@ export default function App() {
     setActiveSubFilter(null);
     setActiveTab('all');
     setSearchQuery('');
-    setCategoryProducts(null);
+    setCategoryProductsState(null);
   };
 
   const handleAddToCart = (
@@ -203,10 +212,14 @@ export default function App() {
   };
 
   const filteredProducts = useMemo(() => {
-    let list =
-      activeCategoryId && categoryProducts !== null
-        ? [...categoryProducts]
-        : [...allProducts];
+    const hasMatchingCategoryProducts =
+      activeCategoryId !== null &&
+      categoryProductsState !== null &&
+      categoryProductsState.categoryId === activeCategoryId;
+
+    let list = hasMatchingCategoryProducts
+      ? [...categoryProductsState.products]
+      : [...allProducts];
 
     // Special virtual tabs/categories
     if (activeMacroCategory === 'new-arrivals') {
@@ -218,15 +231,26 @@ export default function App() {
     ) {
       list = list.filter((p) => p.regular_price && p.regular_price > p.price);
     } else if (activeCategoryId) {
-      // Filter by matching category.id (also keeps categoryProducts if already fetched by category)
-      list = list.filter((p) => p.categoryIds.includes(activeCategoryId));
-    } else if (activeMacroCategory) {
-      list = list.filter(
-        (p) =>
-          p.categorySlug === activeMacroCategory ||
-          p.categories.some((c) => c.slug === activeMacroCategory) ||
-          (activeSubFilter && p.subcategories.includes(activeSubFilter))
+      // Include both direct category ID and all child subcategory IDs
+      const matchingIds = getDescendantCategoryIds(activeCategoryId, wooCategories);
+      list = list.filter((p) =>
+        p.categoryIds.some((id) => matchingIds.has(id))
       );
+    } else if (activeMacroCategory) {
+      const aliasCat = findCategoryBySlugOrAlias(wooCategories, activeMacroCategory);
+      if (aliasCat) {
+        const matchingIds = getDescendantCategoryIds(aliasCat.id, wooCategories);
+        list = list.filter((p) =>
+          p.categoryIds.some((id) => matchingIds.has(id))
+        );
+      } else {
+        list = list.filter(
+          (p) =>
+            p.categorySlug === activeMacroCategory ||
+            p.categories.some((c) => c.slug === activeMacroCategory) ||
+            (activeSubFilter && p.subcategories.includes(activeSubFilter))
+        );
+      }
     } else if (activeTab !== 'all') {
       list = list.filter(
         (p) =>
@@ -235,15 +259,12 @@ export default function App() {
       );
     }
 
-    // Subcategory refinement from Mega Menu flyout when no explicit subcategory ID matched
+    // Subcategory refinement from Mega Menu flyout or subcategory filter strip
     if (activeSubFilter && activeSubFilter !== 'ON_SALE') {
       const subLower = activeSubFilter.toLowerCase();
-      const subMatches = list.filter((p) =>
+      list = list.filter((p) =>
         p.subcategories.some((s) => s.toLowerCase() === subLower)
       );
-      if (subMatches.length > 0) {
-        list = subMatches;
-      }
     }
 
     // Search query
@@ -277,7 +298,8 @@ export default function App() {
     return list;
   }, [
     allProducts,
-    categoryProducts,
+    categoryProductsState,
+    wooCategories,
     activeCategoryId,
     activeMacroCategory,
     activeTab,
@@ -326,6 +348,7 @@ export default function App() {
 
         <CatalogSection
           products={filteredProducts}
+          allProducts={allProducts}
           wooCategories={wooCategories}
           loading={loadingCatalog}
           activeTab={activeTab}
@@ -335,6 +358,7 @@ export default function App() {
           searchQuery={searchQuery}
           sortBy={sortBy}
           onChangeTab={handleChangeTab}
+          onSelectCategory={handleSelectCategory}
           onChangeSort={setSortBy}
           onResetFilters={handleResetFilters}
           onOpenProduct={setSelectedProduct}

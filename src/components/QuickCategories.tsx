@@ -1,4 +1,5 @@
-import { QUICK_CATEGORIES } from '../data/mockProducts';
+import { HERO_ASSETS, QUICK_CATEGORIES } from '../data/mockProducts';
+import { sortWooCategories } from '../services/wooCommerceService';
 import { MacroCategorySlug, WooCategory } from '../types/shop';
 import { ResilientImage } from './ResilientImage';
 
@@ -10,6 +11,44 @@ interface QuickCategoriesProps {
   onSelectCategory: (slug: MacroCategorySlug, subFilter?: string, categoryId?: number) => void;
 }
 
+function resolveCategoryImage(cat: WooCategory): string {
+  const slug = cat.slug.toLowerCase();
+  const name = cat.name.toLowerCase();
+
+  if (slug === 'dog' || slug === 'dogs' || slug === 'cani' || /\bdogs?\b/.test(name)) {
+    return HERO_ASSETS.promoDogs;
+  }
+  if (slug === 'cat' || slug === 'cats' || slug === 'gatti' || /\bcats?\b/.test(name)) {
+    return HERO_ASSETS.promoCats;
+  }
+  if (cat.image) {
+    return cat.image;
+  }
+  if (slug.includes('home') || slug.includes('comfort') || name.includes('home') || name.includes('bed')) {
+    return '/src/assets/images/prod_cuccia_nuvola_1795364644235.jpg';
+  }
+  if (slug.includes('travel') || slug.includes('carrier') || slug.includes('gear') || name.includes('travel')) {
+    return '/src/assets/images/prod_zaino_trasportino_1795364644987.jpg';
+  }
+  if (slug.includes('food') || slug.includes('treat') || name.includes('food')) {
+    return '/src/assets/images/prod_distributore_wifi_1795364737907.jpg';
+  }
+  if (slug.includes('groom') || slug.includes('care') || name.includes('groom')) {
+    return '/src/assets/images/prod_spazzola_vapore_1795364645060.jpg';
+  }
+  if (slug.includes('tech') || slug.includes('smart') || name.includes('tech')) {
+    return '/src/assets/images/prod_telecamera_pet_1795364738227.jpg';
+  }
+  if (slug.includes('small') || slug.includes('rabbit') || name.includes('small')) {
+    return '/src/assets/images/prod_tunnel_coniglio_1795364643962.jpg';
+  }
+
+  return (
+    QUICK_CATEGORIES.find((q) => q.slug === cat.slug)?.image ||
+    HERO_ASSETS.mainBanner
+  );
+}
+
 export function QuickCategories({
   wooCategories,
   sourceMode,
@@ -17,22 +56,42 @@ export function QuickCategories({
   activeCategoryId,
   onSelectCategory,
 }: QuickCategoriesProps) {
+  const activeCat = activeCategoryId
+    ? wooCategories.find((c) => c.id === activeCategoryId)
+    : undefined;
+  const activeParentCategoryId =
+    activeCat && activeCat.parent !== 0 ? activeCat.parent : activeCategoryId;
+
   const tiles =
     sourceMode === 'woocommerce' && wooCategories.length > 0
-      ? wooCategories
-          .filter((c) => c.parent === 0)
+      ? sortWooCategories(wooCategories.filter((c) => c.parent === 0))
           .slice(0, 6)
-          .map((cat, idx) => ({
-            id: cat.id,
-            slug: cat.slug,
-            title: cat.name,
-            subtitle: `${cat.count} ${cat.count === 1 ? 'item' : 'items'}`,
-            image:
-              cat.image ||
-              QUICK_CATEGORIES[idx % QUICK_CATEGORIES.length]?.image ||
-              '/src/assets/images/promo_speciale_cani_1795364699104.jpg',
-          }))
+          .map((cat) => {
+            const childCategories = wooCategories.filter((c) => c.parent === cat.id);
+            const fallbackTile = QUICK_CATEGORIES.find(
+              (q) =>
+                q.slug === cat.slug ||
+                (q.slug === 'dogs' && cat.slug === 'dog') ||
+                (q.slug === 'cats' && cat.slug === 'cat')
+            );
+            return {
+              id: cat.id,
+              slug: cat.slug,
+              title: cat.name,
+              subtitle:
+                childCategories.length > 0
+                  ? `${cat.count} ${cat.count === 1 ? 'item' : 'items'} · ${childCategories[0].name}`
+                  : fallbackTile?.subtitle ||
+                    `${cat.count} ${cat.count === 1 ? 'item' : 'items'}`,
+              image: resolveCategoryImage(cat),
+            };
+          })
       : QUICK_CATEGORIES;
+
+  const gridColsClass =
+    tiles.length === 5
+      ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'
+      : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6';
 
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -47,10 +106,10 @@ export function QuickCategories({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className={`grid ${gridColsClass} gap-4`}>
         {tiles.map((tile) => {
           const isSelected =
-            (activeCategoryId && tile.id === activeCategoryId) ||
+            (activeParentCategoryId && tile.id === activeParentCategoryId) ||
             activeCategorySlug === tile.slug;
           return (
             <button
