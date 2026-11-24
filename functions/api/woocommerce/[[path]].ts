@@ -270,9 +270,12 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
       const contentType = upstreamRes.headers.get('content-type') || '';
       const rawText = await upstreamRes.text();
 
-      if (!contentType.toLowerCase().includes('application/json')) {
+      const isJsonContentType =
+        contentType.toLowerCase().includes('application/json') ||
+        contentType.toLowerCase().includes('+json');
+
+      if (!isJsonContentType) {
         const excerpt = extractSafeSnippet(rawText);
-        const status = upstreamRes.ok ? 502 : upstreamRes.status || 502;
         return jsonResponse(
           {
             error: `WooCommerce upstream returned non-JSON content (HTTP ${upstreamRes.status})${
@@ -280,7 +283,7 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
             }`,
             upstreamStatus: upstreamRes.status,
           },
-          status
+          502
         );
       }
 
@@ -296,7 +299,7 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
             }`,
             upstreamStatus: upstreamRes.status,
           },
-          upstreamRes.ok ? 502 : upstreamRes.status || 502
+          502
         );
       }
 
