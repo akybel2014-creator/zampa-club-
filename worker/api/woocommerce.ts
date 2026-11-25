@@ -3,6 +3,13 @@ import type { WorkerEnv } from '../types';
 const DEFAULT_STORE_URL = 'https://zampaclub.it';
 const UPSTREAM_TIMEOUT_MS = 15000;
 
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept',
+  'Access-Control-Max-Age': '86400',
+};
+
 function jsonResponse(
   body: unknown,
   status = 200,
@@ -14,6 +21,7 @@ function jsonResponse(
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': cacheControl,
       'X-Content-Type-Options': 'nosniff',
+      ...CORS_HEADERS,
     },
   });
 }
@@ -165,6 +173,7 @@ export async function handleWooCommerceRequest(
         status: 204,
         headers: {
           Allow: 'GET, OPTIONS',
+          ...CORS_HEADERS,
         },
       });
     }
@@ -214,6 +223,7 @@ export async function handleWooCommerceRequest(
     let upstreamUrl: URL;
     const headers: Record<string, string> = {
       Accept: 'application/json',
+      'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
     };
 
     if (hasServerCreds) {

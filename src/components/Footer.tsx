@@ -63,7 +63,7 @@ export function Footer({
                   </span>
                 </div>
               ) : (
-                <form onSubmit={handleSubscribe} className="flex gap-2">
+                <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-2">
                   <label htmlFor="footer-newsletter" className="sr-only">
                     Email address for 10% off
                   </label>
@@ -74,11 +74,11 @@ export function Footer({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="Enter your email..."
-                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl bg-white border border-[#E7E5E4] text-sm text-[#1C1917] placeholder:text-[#78716C] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
+                    className="flex-1 min-w-0 min-h-[44px] px-3.5 py-2.5 rounded-xl bg-white border border-[#E7E5E4] text-base sm:text-sm text-[#1C1917] placeholder:text-[#78716C] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
                   />
                   <button
                     type="submit"
-                    className="px-4 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+                    className="min-h-[44px] px-4 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
                   >
                     Get 10% Off
                   </button>
@@ -96,7 +96,7 @@ export function Footer({
                   <button
                     type="button"
                     onClick={() => onSelectCategory(cat.slug, undefined, cat.id)}
-                    className="hover:text-[#C2410C] transition-colors text-left"
+                    className="py-1 inline-block hover:text-[#C2410C] transition-colors text-left"
                   >
                     {cat.name}
                   </button>

@@ -152,12 +152,12 @@ export function CatalogSection({
         </div>
 
         {/* Sort & Filter Controls */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 min-w-0">
           {/* Dynamic Category Filter Tabs */}
           <div
             role="tablist"
             aria-label="Filter catalog"
-            className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F4] border border-[#E7E5E4] overflow-x-auto max-w-full"
+            className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#F5F5F4] border border-[#E7E5E4] overflow-x-auto no-scrollbar touch-pan-x max-w-full"
           >
             {filterTabs.map((tab) => {
               const isDealsActive =
@@ -182,7 +182,7 @@ export function CatalogSection({
                   role="tab"
                   aria-selected={Boolean(isActive)}
                   onClick={() => onChangeTab(tab.id, tab.categoryId)}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                  className={`min-h-[40px] sm:min-h-[36px] px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap shrink-0 ${
                     isActive
                       ? 'bg-white text-[#1C1917] shadow-sm'
                       : 'text-[#57534E] hover:text-[#1C1917]'
@@ -195,7 +195,7 @@ export function CatalogSection({
           </div>
 
           {/* Sort Dropdown */}
-          <div className="relative inline-flex items-center">
+          <div className="relative inline-flex items-center w-full sm:w-auto">
             <ArrowUpDown className="w-3.5 h-3.5 text-[#57534E] absolute left-3 pointer-events-none" />
             <label htmlFor="catalog-sort" className="sr-only">
               Sort products
@@ -204,7 +204,7 @@ export function CatalogSection({
               id="catalog-sort"
               value={sortBy}
               onChange={(e) => onChangeSort(e.target.value as SortOption)}
-              className="pl-8 pr-4 py-2 rounded-xl bg-white border border-[#E7E5E4] text-xs sm:text-sm font-medium text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/25 focus:border-[#C2410C]"
+              className="w-full sm:w-auto min-h-[44px] sm:min-h-[38px] pl-8 pr-4 py-2 rounded-xl bg-white border border-[#E7E5E4] text-base sm:text-sm font-medium text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/25 focus:border-[#C2410C]"
             >
               <option value="popular">Most Popular</option>
               <option value="price-asc">Price: Low to High</option>
@@ -246,7 +246,7 @@ export function CatalogSection({
             <button
               type="button"
               onClick={onResetFilters}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#C2410C] hover:text-[#9A3412] whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 min-h-[36px] px-2 py-1 text-xs font-semibold text-[#C2410C] hover:text-[#9A3412] whitespace-nowrap"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Show All</span>
@@ -268,7 +268,7 @@ export function CatalogSection({
                       activeParentCategory.id
                     )
                   }
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                  className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
                     activeCategoryId === activeParentCategory.id && !activeSubFilter
                       ? 'bg-[#1C1917] text-white border-[#1C1917]'
                       : 'bg-[#FAFAF9] text-[#57534E] border-[#E7E5E4] hover:border-[#D6D3D1] hover:text-[#1C1917]'
@@ -285,7 +285,7 @@ export function CatalogSection({
                       onClick={() =>
                         onSelectCategory(child.slug, undefined, child.id)
                       }
-                      className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                      className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
                         isChildSelected
                           ? 'bg-[#C2410C] text-white border-[#C2410C]'
                           : 'bg-[#FAFAF9] text-[#57534E] border-[#E7E5E4] hover:border-[#D6D3D1] hover:text-[#1C1917]'
@@ -309,7 +309,7 @@ export function CatalogSection({
                           activeParentCategory.id
                         )
                       }
-                      className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                      className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
                         isSubSelected
                           ? 'bg-[#C2410C] text-white border-[#C2410C]'
                           : 'bg-[#FAFAF9] text-[#57534E] border-[#E7E5E4] hover:border-[#D6D3D1] hover:text-[#1C1917]'

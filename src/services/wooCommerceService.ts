@@ -293,8 +293,15 @@ function buildNonJsonErrorMessage(
  */
 async function fetchJsonBounded<T>(
   url: string,
-  { timeoutMs = 15000, maxRetries = 1 }: { timeoutMs?: number; maxRetries?: number } = {}
+  { timeoutMs = 20000, maxRetries = 1 }: { timeoutMs?: number; maxRetries?: number } = {}
 ): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new WooNetworkError(
+      'You appear to be offline. Please check your mobile data or Wi-Fi connection and try again.',
+      { isCorsOrNetwork: true }
+    );
+  }
+
   const boundedRetries = Math.min(Math.max(0, maxRetries), 1);
 
   for (let attempt = 0; attempt <= boundedRetries; attempt++) {
@@ -322,8 +329,12 @@ async function fetchJsonBounded<T>(
 
       const contentType = response.headers.get('content-type') || '';
       const rawText = await response.text();
+      const lowerContentType = contentType.toLowerCase();
+      const isJsonContentType =
+        lowerContentType.includes('application/json') ||
+        lowerContentType.includes('+json');
 
-      if (!contentType.toLowerCase().includes('application/json')) {
+      if (!isJsonContentType) {
         throw new WooNetworkError(
           buildNonJsonErrorMessage(url, response.status, contentType, rawText),
           { status: response.status || 502 }
@@ -359,7 +370,16 @@ async function fetchJsonBounded<T>(
           { isTimeout: true }
         );
       }
-      // Browser fetch throws TypeError on CORS blocks or unreachable hosts — fail fast without looping
+
+      // Mobile browsers (especially iOS Safari) can emit transient TypeError ("Load failed")
+      // when switching Wi-Fi/cellular or resuming from background — allow 1 fast retry while online.
+      const isStillOnline =
+        typeof navigator === 'undefined' || navigator.onLine !== false;
+      if (attempt < boundedRetries && isStillOnline) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        continue;
+      }
+
       throw new WooNetworkError(
         `Network or CORS error while reaching ${sanitizeUrlForDebug(url)}.`,
         { isCorsOrNetwork: true }
@@ -378,12 +398,18 @@ async function fetchWithDevStoreFallback<T>(
 ): Promise<T> {
   const proxyUrl = buildProxyEndpoint(proxyPath, proxyParams);
   try {
-    return await fetchJsonBounded<T>(proxyUrl, { timeoutMs: 15000, maxRetries: 1 });
+    return await fetchJsonBounded<T>(proxyUrl, { timeoutMs: 20000, maxRetries: 1 });
   } catch (proxyErr) {
-    // Only in local development, allow an unauthenticated public Store API fallback if proxy isn't active
-    if (import.meta.env.DEV) {
-      const storeUrl = buildDevStoreApiFallbackUrl(devStorePath, devStoreParams);
-      return await fetchJsonBounded<T>(storeUrl, { timeoutMs: 15000, maxRetries: 0 });
+    // Only in local development, allow an unauthenticated public Store API fallback if proxy route is missing (404 / non-JSON HTML)
+    const isProxyMissing =
+      proxyErr instanceof WooNetworkError && proxyErr.status === 404;
+    if (import.meta.env.DEV && isProxyMissing) {
+      try {
+        const storeUrl = buildDevStoreApiFallbackUrl(devStorePath, devStoreParams);
+        return await fetchJsonBounded<T>(storeUrl, { timeoutMs: 20000, maxRetries: 0 });
+      } catch {
+        throw proxyErr;
+      }
     }
     throw proxyErr;
   }

@@ -162,7 +162,7 @@ export function Header({
   }, []);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: PointerEvent) => {
       const target = e.target as Node;
       const inDesktop =
         desktopSearchRef.current && desktopSearchRef.current.contains(target);
@@ -172,8 +172,8 @@ export function Header({
         setSearchFocused(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handleClickOutside);
+    return () => document.removeEventListener('pointerdown', handleClickOutside);
   }, []);
 
   const activeMegaCategory = useMemo(
@@ -318,7 +318,7 @@ export function Header({
             />
 
             {/* Fluid Drawer Panel */}
-            <aside className="relative z-10 w-[min(22rem,88vw)] max-w-full bg-white h-full shadow-2xl flex flex-col overflow-hidden">
+            <aside className="relative z-10 w-[min(22rem,88vw)] max-w-full bg-white h-[100dvh] shadow-2xl flex flex-col overflow-hidden">
               {/* Drawer Header */}
               <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-[#E7E5E4] shrink-0">
                 <div className="min-w-0">
@@ -437,7 +437,7 @@ export function Header({
               </div>
 
               {/* Drawer Footer Quick Actions */}
-              <div className="border-t border-[#E7E5E4] bg-[#FAFAF9] p-3 grid grid-cols-2 gap-2 shrink-0">
+              <div className="border-t border-[#E7E5E4] bg-[#FAFAF9] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] grid grid-cols-2 gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => {
@@ -535,7 +535,7 @@ export function Header({
                   <button
                     type="button"
                     onClick={() => onSearchChange('')}
-                    className="absolute right-2 w-8 h-8 flex items-center justify-center text-[#78716C] hover:text-[#1C1917] rounded-lg"
+                    className="absolute right-1.5 w-10 h-10 flex items-center justify-center text-[#78716C] hover:text-[#1C1917] rounded-lg"
                     aria-label="Clear search"
                   >
                     <X className="w-4 h-4" />
@@ -587,13 +587,13 @@ export function Header({
                 }}
                 placeholder="Search products for dogs, cats, travel, home..."
                 aria-label="Search products"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#FAFAF9] border border-[#E7E5E4] text-sm text-[#1C1917] placeholder:text-[#78716C] focus:bg-white focus:outline-none focus:border-[#C2410C]"
+                className="w-full pl-10 pr-11 py-2.5 min-h-[44px] rounded-xl bg-[#FAFAF9] border border-[#E7E5E4] text-base sm:text-sm text-[#1C1917] placeholder:text-[#78716C] focus:bg-white focus:outline-none focus:border-[#C2410C]"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => onSearchChange('')}
-                  className="absolute right-2 w-8 h-8 flex items-center justify-center text-[#78716C] hover:text-[#1C1917] rounded-lg"
+                  className="absolute right-1.5 w-10 h-10 flex items-center justify-center text-[#78716C] hover:text-[#1C1917] rounded-lg"
                   aria-label="Clear search"
                 >
                   <X className="w-4 h-4" />

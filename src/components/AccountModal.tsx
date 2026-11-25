@@ -1,5 +1,5 @@
 import { CheckCircle2, Code2, Copy, ExternalLink, Info, Package, Server, User, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   isWooCommerceConfigured,
   WOOCOMMERCE_CONFIG,
@@ -28,6 +28,23 @@ export function AccountModal({
   const [petName, setPetName] = useState('Cooper');
   const [petType, setPetType] = useState<'Dog' | 'Cat' | 'Small Pet'>('Dog');
   const [savedNotice, setSavedNotice] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -58,19 +75,19 @@ export function AccountModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-2xl bg-white border border-[#E7E5E4] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+        className="w-full max-w-2xl rounded-2xl bg-white border border-[#E7E5E4] shadow-2xl overflow-hidden max-h-[90dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E7E5E4]">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#C2410C]/10 text-[#C2410C] flex items-center justify-center">
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-[#E7E5E4] shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-full bg-[#C2410C]/10 text-[#C2410C] flex items-center justify-center shrink-0">
               <User className="w-4 h-4" />
             </div>
-            <div>
-              <h2 id="account-modal-title" className="font-display text-lg font-bold text-[#1C1917]">
+            <div className="min-w-0">
+              <h2 id="account-modal-title" className="font-display text-base sm:text-lg font-bold text-[#1C1917] truncate">
                 Account & Store Connection
               </h2>
-              <p className="text-xs text-[#57534E]">
+              <p className="text-xs text-[#57534E] truncate">
                 Pet Lover profile & WooCommerce REST API status
               </p>
             </div>
@@ -78,18 +95,18 @@ export function AccountModal({
           <button
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-[#57534E] hover:bg-[#F5F5F4] hover:text-[#1C1917] transition-colors"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-[#57534E] hover:bg-[#F5F5F4] hover:text-[#1C1917] transition-colors shrink-0"
             aria-label="Close account modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="px-6 pt-3 border-b border-[#E7E5E4] flex gap-2 bg-[#FAFAF9]">
+        <div className="px-4 sm:px-6 pt-3 border-b border-[#E7E5E4] flex gap-2 bg-[#FAFAF9] overflow-x-auto no-scrollbar shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
+            className={`min-h-[44px] px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'profile'
                 ? 'border-[#C2410C] text-[#1C1917] bg-white'
                 : 'border-transparent text-[#57534E] hover:text-[#1C1917]'
@@ -100,7 +117,7 @@ export function AccountModal({
           <button
             type="button"
             onClick={() => setActiveTab('integration')}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
+            className={`min-h-[44px] px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'integration'
                 ? 'border-[#C2410C] text-[#1C1917] bg-white'
                 : 'border-transparent text-[#57534E] hover:text-[#1C1917]'
@@ -110,7 +127,7 @@ export function AccountModal({
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto space-y-6">
+        <div className="p-4 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto overscroll-contain space-y-6">
           {activeTab === 'profile' ? (
             <>
               <form onSubmit={handleSaveProfile} className="space-y-4">
@@ -123,7 +140,7 @@ export function AccountModal({
                       type="text"
                       value={petName}
                       onChange={(e) => setPetName(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-base sm:text-sm text-[#1C1917] focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
                     />
                   </div>
                   <div>
@@ -135,7 +152,7 @@ export function AccountModal({
                       onChange={(e) =>
                         setPetType(e.target.value as 'Dog' | 'Cat' | 'Small Pet')
                       }
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm text-[#1C1917] bg-white focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-[#E7E5E4] text-base sm:text-sm text-[#1C1917] bg-white focus:outline-none focus:ring-2 focus:ring-[#C2410C]/30 focus:border-[#C2410C]"
                     >
                       <option value="Dog">Dog</option>
                       <option value="Cat">Cat</option>

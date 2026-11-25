@@ -170,6 +170,15 @@ export default function App() {
     };
   }, [hasWarmCache]);
 
+  useEffect(() => {
+    if (sourceMode !== 'error' && categorySourceMode !== 'error') return;
+    const handleOnline = () => {
+      loadWooCommerceData(false);
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [sourceMode, categorySourceMode, loadWooCommerceData]);
+
   const megaCategories = useMemo(
     () => buildMegaCategoriesFromWoo(wooCategories, allProducts),
     [wooCategories, allProducts]

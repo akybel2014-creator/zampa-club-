@@ -114,6 +114,7 @@ async function fetchUpstreamJson(
   try {
     const headers: Record<string, string> = {
       Accept: 'application/json',
+      'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
     };
     if (authHeader) {
       headers.Authorization = authHeader;
@@ -127,7 +128,10 @@ async function fetchUpstreamJson(
 
     const contentType = response.headers.get('content-type') || '';
     const rawText = await response.text();
-    if (!contentType.toLowerCase().includes('application/json')) {
+    const isJsonContentType =
+      contentType.toLowerCase().includes('application/json') ||
+      contentType.toLowerCase().includes('+json');
+    if (!isJsonContentType) {
       const excerpt = extractSafeUpstreamSnippet(rawText);
       const safePath = (() => {
         try {
@@ -194,8 +198,15 @@ async function handleProxyFetch(
       return;
     }
 
+    const errObj =
+      result.data && typeof result.data === 'object'
+        ? (result.data as { error?: string; message?: string })
+        : null;
     res.status(result.status).json({
-      error: `WooCommerce upstream error (HTTP ${result.status})`,
+      error:
+        errObj?.error ||
+        errObj?.message ||
+        `WooCommerce upstream error (HTTP ${result.status})`,
     });
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === 'AbortError';
@@ -210,6 +221,19 @@ async function handleProxyFetch(
 async function startServer(): Promise<void> {
   const app = express();
   app.disable('x-powered-by');
+
+  app.use('/api', (req: Request, res: Response, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
 
   app.get('/api/woocommerce/health', (_req: Request, res: Response) => {
     try {

@@ -47,6 +47,23 @@ export function ProductModal({
     };
   }, [product]);
 
+  useEffect(() => {
+    if (!product) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [product, onClose]);
+
   if (!product) return null;
 
   const variations = liveVariations || product.variations;
@@ -75,11 +92,11 @@ export function ProductModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-4xl rounded-2xl bg-white border border-[#E7E5E4] shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
+        className="w-full max-w-4xl rounded-2xl bg-white border border-[#E7E5E4] shadow-2xl overflow-hidden max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Modal Bar */}
-        <div className="flex items-center justify-between px-5 sm:px-6 py-3.5 border-b border-[#E7E5E4] bg-[#FAFAF9]">
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3 border-b border-[#E7E5E4] bg-[#FAFAF9] shrink-0">
           <div className="text-xs font-medium text-[#57534E] truncate">
             {product.categoryLabel}
             {product.subcategories[0] ? ` / ${product.subcategories[0]}` : ''} · SKU{' '}
@@ -88,7 +105,7 @@ export function ProductModal({
           <button
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-[#57534E] hover:bg-[#E7E5E4]/60 hover:text-[#1C1917] transition-colors shrink-0"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl flex items-center justify-center text-[#57534E] hover:bg-[#E7E5E4]/60 hover:text-[#1C1917] transition-colors shrink-0"
             aria-label="Close product details"
           >
             <X className="w-5 h-5" />
@@ -96,7 +113,7 @@ export function ProductModal({
         </div>
 
         {/* Content Body */}
-        <div className="overflow-y-auto p-5 sm:p-8">
+        <div className="overflow-y-auto overscroll-contain p-4 sm:p-8 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
             {/* Gallery Left */}
             <div className="md:col-span-6 space-y-3 md:sticky md:top-0">
@@ -206,7 +223,7 @@ export function ProductModal({
                         key={v.variation_id}
                         type="button"
                         onClick={() => setSelectedVariationId(v.variation_id)}
-                        className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-left transition-all ${
+                        className={`min-h-[44px] flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-left transition-all ${
                           selected
                             ? 'border-[#C2410C] bg-[#C2410C]/5 ring-1 ring-[#C2410C]'
                             : 'border-[#E7E5E4] bg-white hover:border-[#D6D3D1]'
@@ -234,12 +251,12 @@ export function ProductModal({
               </div>
 
               {/* Quantity & CTA */}
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 sm:gap-3 pt-2">
                 <div className="inline-flex items-center rounded-xl border border-[#E7E5E4] bg-[#FAFAF9]">
                   <button
                     type="button"
                     onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                    className="w-10 h-11 flex items-center justify-center text-[#1C1917] hover:bg-[#E7E5E4]/50 rounded-l-xl"
+                    className="w-11 h-11 flex items-center justify-center text-[#1C1917] hover:bg-[#E7E5E4]/50 rounded-l-xl"
                     aria-label="Decrease quantity"
                   >
                     <Minus className="w-4 h-4" />
@@ -250,7 +267,7 @@ export function ProductModal({
                   <button
                     type="button"
                     onClick={() => setQuantity((q) => q + 1)}
-                    className="w-10 h-11 flex items-center justify-center text-[#1C1917] hover:bg-[#E7E5E4]/50 rounded-r-xl"
+                    className="w-11 h-11 flex items-center justify-center text-[#1C1917] hover:bg-[#E7E5E4]/50 rounded-r-xl"
                     aria-label="Increase quantity"
                   >
                     <Plus className="w-4 h-4" />
@@ -260,9 +277,9 @@ export function ProductModal({
                 <button
                   type="button"
                   onClick={handleConfirmAdd}
-                  className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-bold shadow-sm transition-colors"
+                  className="flex-1 min-w-[180px] min-h-[48px] inline-flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-bold shadow-sm transition-colors whitespace-nowrap"
                 >
-                  <ShoppingBag className="w-4 h-4" />
+                  <ShoppingBag className="w-4 h-4 shrink-0" />
                   <span>
                     Add to Cart · {formatUsd(activePrice * quantity)}
                   </span>
