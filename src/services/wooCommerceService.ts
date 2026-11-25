@@ -85,25 +85,29 @@ interface WooApiProduct {
   attributes?: WooStoreApiAttribute[];
 }
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const PRODUCTS_CACHE_KEY = 'zampaclub_wc_products_v1';
 const CATEGORIES_CACHE_KEY = 'zampaclub_wc_categories_v1';
+const VARIATIONS_CACHE_KEY = 'zampaclub_wc_variations_v1';
+const COOLDOWN_STORAGE_KEY = 'zampaclub_wc_cooldown_v1';
 
 let memoryProductsCache: { ts: number; data: Product[] } | null = null;
 let memoryCategoriesCache: { ts: number; data: WooCategory[] } | null = null;
-const memoryVariationsCache = new Map<number, ProductVariation[]>();
+const memoryVariationsCache = new Map<number, { ts: number; data: ProductVariation[] }>();
 
 let inFlightProductsPromise: Promise<CatalogFetchResult> | null = null;
 let inFlightCategoriesPromise: Promise<CategoriesFetchResult> | null = null;
 const inFlightVariationPromises = new Map<number, Promise<ProductVariation[] | null>>();
+let inFlightCheckoutPromise: Promise<WooCheckoutResult> | null = null;
 
-function readSessionCache<T>(key: string): T | null {
+let rateLimitCooldownUntil = 0;
+
+function readSessionCache<T>(key: string, allowStale = false): T | null {
   try {
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { ts: number; data: T };
-    if (Date.now() - parsed.ts > CACHE_TTL_MS) {
-      sessionStorage.removeItem(key);
+    if (!allowStale && Date.now() - parsed.ts > CACHE_TTL_MS) {
       return null;
     }
     return parsed.data;
@@ -120,12 +124,81 @@ function writeSessionCache<T>(key: string, data: T): void {
   }
 }
 
+function readPersistedVariationsMap(): Record<string, { ts: number; data: ProductVariation[] }> {
+  try {
+    const raw = sessionStorage.getItem(VARIATIONS_CACHE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, { ts: number; data: ProductVariation[] }>;
+  } catch {
+    return {};
+  }
+}
+
+function writePersistedVariation(productId: number, variations: ProductVariation[]): void {
+  const entry = { ts: Date.now(), data: variations };
+  memoryVariationsCache.set(productId, entry);
+  try {
+    const map = readPersistedVariationsMap();
+    map[String(productId)] = entry;
+    sessionStorage.setItem(VARIATIONS_CACHE_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function readCachedVariation(productId: number): ProductVariation[] | null {
+  const mem = memoryVariationsCache.get(productId);
+  if (mem && Date.now() - mem.ts <= CACHE_TTL_MS) {
+    return mem.data;
+  }
+  const persisted = readPersistedVariationsMap()[String(productId)];
+  if (persisted && Date.now() - persisted.ts <= CACHE_TTL_MS) {
+    memoryVariationsCache.set(productId, persisted);
+    return persisted.data;
+  }
+  return null;
+}
+
+export function getRateLimitRemainingSeconds(): number {
+  let until = rateLimitCooldownUntil;
+  if (!until) {
+    try {
+      const raw = sessionStorage.getItem(COOLDOWN_STORAGE_KEY);
+      if (raw) {
+        const parsed = Number.parseInt(raw, 10);
+        if (Number.isFinite(parsed)) {
+          until = parsed;
+          rateLimitCooldownUntil = parsed;
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }
+  if (!until || Date.now() >= until) {
+    return 0;
+  }
+  return Math.max(1, Math.ceil((until - Date.now()) / 1000));
+}
+
+function setRateLimitCooldown(seconds: number): void {
+  const clamped = Math.min(Math.max(seconds, 15), 300);
+  rateLimitCooldownUntil = Date.now() + clamped * 1000;
+  try {
+    sessionStorage.setItem(COOLDOWN_STORAGE_KEY, String(rateLimitCooldownUntil));
+  } catch {
+    // Ignore
+  }
+}
+
 export function clearWooCommerceCache(): void {
   memoryProductsCache = null;
   memoryCategoriesCache = null;
+  memoryVariationsCache.clear();
   try {
     sessionStorage.removeItem(PRODUCTS_CACHE_KEY);
     sessionStorage.removeItem(CATEGORIES_CACHE_KEY);
+    sessionStorage.removeItem(VARIATIONS_CACHE_KEY);
   } catch {
     // Ignore
   }
@@ -165,16 +238,26 @@ class WooNetworkError extends Error {
   readonly status?: number;
   readonly isCorsOrNetwork: boolean;
   readonly isTimeout: boolean;
+  readonly isRateLimited: boolean;
+  readonly retryAfterSeconds?: number;
 
   constructor(
     message: string,
-    options: { status?: number; isCorsOrNetwork?: boolean; isTimeout?: boolean } = {}
+    options: {
+      status?: number;
+      isCorsOrNetwork?: boolean;
+      isTimeout?: boolean;
+      isRateLimited?: boolean;
+      retryAfterSeconds?: number;
+    } = {}
   ) {
     super(message);
     this.name = 'WooNetworkError';
     this.status = options.status;
     this.isCorsOrNetwork = Boolean(options.isCorsOrNetwork);
     this.isTimeout = Boolean(options.isTimeout);
+    this.isRateLimited = Boolean(options.isRateLimited);
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 
@@ -287,14 +370,23 @@ function buildNonJsonErrorMessage(
 }
 
 /**
- * Fetches JSON cleanly without infinite retry loops:
- * - Never retries CORS/network TypeErrors, timeouts, 4xx errors (except 429), or non-JSON responses.
- * - Allows at most 1 bounded retry on transient 429 or 502/503/504 responses.
+ * Fetches JSON cleanly without 429 amplification or infinite retry loops:
+ * - Never retries HTTP 429 (sets a shared cooldown instead).
+ * - Never retries CORS/network TypeErrors if offline, timeouts, or 4xx errors.
+ * - Allows at most 1 bounded retry on transient 502/503/504 or online mobile hiccup.
  */
 async function fetchJsonBounded<T>(
   url: string,
   { timeoutMs = 20000, maxRetries = 1 }: { timeoutMs?: number; maxRetries?: number } = {}
 ): Promise<T> {
+  const remainingCooldown = getRateLimitRemainingSeconds();
+  if (remainingCooldown > 0) {
+    throw new WooNetworkError(
+      `WooCommerce rate limit cooldown active. Please wait ${remainingCooldown}s before retrying.`,
+      { status: 429, isRateLimited: true, retryAfterSeconds: remainingCooldown }
+    );
+  }
+
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new WooNetworkError(
       'You appear to be offline. Please check your mobile data or Wi-Fi connection and try again.',
@@ -316,14 +408,31 @@ async function fetchJsonBounded<T>(
       });
       clearTimeout(timer);
 
-      const isTransientStatus =
-        response.status === 429 ||
+      if (response.status === 429) {
+        const retryHeader = Number.parseInt(response.headers.get('retry-after') || '', 10);
+        const errPayload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          retryAfterSeconds?: number;
+        };
+        const retrySec =
+          (Number.isFinite(retryHeader) && retryHeader > 0 ? retryHeader : 0) ||
+          errPayload.retryAfterSeconds ||
+          60;
+        setRateLimitCooldown(retrySec);
+        throw new WooNetworkError(
+          errPayload.error ||
+            `Too many requests to WooCommerce (HTTP 429). Please wait ${retrySec}s before retrying.`,
+          { status: 429, isRateLimited: true, retryAfterSeconds: retrySec }
+        );
+      }
+
+      const isTransientGatewayStatus =
         response.status === 502 ||
         response.status === 503 ||
         response.status === 504;
 
-      if (isTransientStatus && attempt < boundedRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+      if (isTransientGatewayStatus && attempt < boundedRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
       }
 
@@ -371,8 +480,6 @@ async function fetchJsonBounded<T>(
         );
       }
 
-      // Mobile browsers (especially iOS Safari) can emit transient TypeError ("Load failed")
-      // when switching Wi-Fi/cellular or resuming from background — allow 1 fast retry while online.
       const isStillOnline =
         typeof navigator === 'undefined' || navigator.onLine !== false;
       if (attempt < boundedRetries && isStillOnline) {
@@ -776,9 +883,11 @@ export async function fetchWooCategories(
         source: 'woocommerce',
       };
     }
-    if (inFlightCategoriesPromise) {
-      return inFlightCategoriesPromise;
-    }
+  }
+
+  // Always coalesce concurrent category requests (even during forceRefresh)
+  if (inFlightCategoriesPromise) {
+    return inFlightCategoriesPromise;
   }
 
   const requestPromise = (async (): Promise<CategoriesFetchResult> => {
@@ -816,6 +925,13 @@ export async function fetchWooCategories(
         source: 'woocommerce',
       };
     } catch (err) {
+      const staleCats = readSessionCache<WooCategory[]>(CATEGORIES_CACHE_KEY, true);
+      if (staleCats && staleCats.length > 0) {
+        return {
+          categories: staleCats,
+          source: 'woocommerce',
+        };
+      }
       return {
         categories: [],
         source: 'error',
@@ -829,10 +945,7 @@ export async function fetchWooCategories(
     }
   })();
 
-  if (!forceRefresh) {
-    inFlightCategoriesPromise = requestPromise;
-  }
-
+  inFlightCategoriesPromise = requestPromise;
   return requestPromise;
 }
 
@@ -996,9 +1109,11 @@ export async function fetchCatalogProducts(
         source: 'woocommerce',
       };
     }
-    if (inFlightProductsPromise) {
-      return inFlightProductsPromise;
-    }
+  }
+
+  // Always coalesce concurrent product catalog requests (even during forceRefresh)
+  if (inFlightProductsPromise) {
+    return inFlightProductsPromise;
   }
 
   const requestPromise = (async (): Promise<CatalogFetchResult> => {
@@ -1023,6 +1138,13 @@ export async function fetchCatalogProducts(
         source: 'woocommerce',
       };
     } catch (err) {
+      const staleProducts = readSessionCache<Product[]>(PRODUCTS_CACHE_KEY, true);
+      if (staleProducts && staleProducts.length > 0) {
+        return {
+          products: staleProducts,
+          source: 'woocommerce',
+        };
+      }
       return {
         products: [],
         source: 'error',
@@ -1036,15 +1158,13 @@ export async function fetchCatalogProducts(
     }
   })();
 
-  if (!forceRefresh) {
-    inFlightProductsPromise = requestPromise;
-  }
-
+  inFlightProductsPromise = requestPromise;
   return requestPromise;
 }
 
 /**
- * Lazy-loads live variation details for a single variable product on-demand (e.g. when ProductModal opens).
+ * Lazy-loads live variation details for a single variable product on-demand,
+ * reusing both memory and sessionStorage cache.
  */
 export async function fetchProductVariations(
   productId: number,
@@ -1053,7 +1173,7 @@ export async function fetchProductVariations(
 ): Promise<ProductVariation[] | null> {
   if (!isWooCommerceConfigured()) return null;
 
-  const cached = memoryVariationsCache.get(productId);
+  const cached = readCachedVariation(productId);
   if (cached) return cached;
 
   const existingInFlight = inFlightVariationPromises.get(productId);
@@ -1096,7 +1216,7 @@ export async function fetchProductVariations(
       }
 
       if (mapped && mapped.length > 0) {
-        memoryVariationsCache.set(productId, mapped);
+        writePersistedVariation(productId, mapped);
       }
       return mapped;
     } catch {
@@ -1110,46 +1230,120 @@ export async function fetchProductVariations(
   return requestPromise;
 }
 
+export interface WooCheckoutBilling {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  address_1: string;
+  city: string;
+  postcode: string;
+  country: string;
+  state?: string;
+}
+
+export interface WooCheckoutResult {
+  ok: boolean;
+  orderId?: number;
+  orderNumber?: string;
+  status?: string;
+  paymentUrl?: string | null;
+  error?: string;
+}
+
 /**
- * Builds the WooCommerce checkout URL:
- * https://zampaclub.it/pagamento/?add-to-cart=ID1:QTY1,ID2:QTY2
- * Uses variation_id when a variation is selected, otherwise product_id.
+ * Submits cart items & customer billing details via a targeted POST /api/woocommerce/checkout call.
+ * Eliminates ?add-to-cart=... query-string redirects and prevents duplicate concurrent submissions.
  */
-export function buildWooCommerceCheckoutUrl(items: CartItem[]): {
-  url: string;
-  isMultiItem: boolean;
-  payloadSummary: { name: string; variationLabel: string; targetId: number; qty: number }[];
-} {
-  const baseUrl = WOOCOMMERCE_CONFIG.WP_STORE_URL.replace(/\/+$/, '');
-  const payloadSummary = items.map((item) => {
+export async function submitWooCommerceCheckout(
+  items: CartItem[],
+  billing: WooCheckoutBilling,
+  paymentMethod: 'cod' | 'woocommerce_payments' = 'cod'
+): Promise<WooCheckoutResult> {
+  if (items.length === 0) {
+    return { ok: false, error: 'Your cart is empty.' };
+  }
+
+  const remainingCooldown = getRateLimitRemainingSeconds();
+  if (remainingCooldown > 0) {
+    return {
+      ok: false,
+      error: `Checkout is cooling down after a WooCommerce rate limit. Please wait ${remainingCooldown}s.`,
+    };
+  }
+
+  if (inFlightCheckoutPromise) {
+    return inFlightCheckoutPromise;
+  }
+
+  const lineItems = items.map((item) => {
     const hasVariationId =
       item.product.hasVariations !== false &&
       Boolean(item.variation?.variation_id) &&
       item.variation.variation_id !== item.product.id;
-
     return {
-      name: item.product.name,
-      variationLabel: item.variation.label,
-      targetId: hasVariationId ? item.variation.variation_id : item.product.id,
-      qty: item.quantity,
+      id: hasVariationId ? item.variation.variation_id : item.product.id,
+      quantity: item.quantity,
     };
   });
 
-  if (items.length === 0) {
-    return {
-      url: `${baseUrl}/pagamento/`,
-      isMultiItem: false,
-      payloadSummary,
-    };
-  }
+  const checkoutUrl = buildProxyEndpoint('/checkout');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
 
-  const cartParam = payloadSummary
-    .map((entry) => `${entry.targetId}:${entry.qty}`)
-    .join(',');
+  inFlightCheckoutPromise = (async (): Promise<WooCheckoutResult> => {
+    try {
+      const response = await fetch(checkoutUrl, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          items: lineItems,
+          billing,
+          payment_method: paymentMethod,
+        }),
+        signal: controller.signal,
+      });
 
-  return {
-    url: `${baseUrl}/pagamento/?add-to-cart=${cartParam}`,
-    isMultiItem: items.length > 1,
-    payloadSummary,
-  };
+      if (response.status === 429) {
+        const errBody = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          retryAfterSeconds?: number;
+        };
+        const retrySec = errBody.retryAfterSeconds || 60;
+        setRateLimitCooldown(retrySec);
+        return {
+          ok: false,
+          error:
+            errBody.error ||
+            `Too many requests to WooCommerce (HTTP 429). Please wait ${retrySec}s.`,
+        };
+      }
+
+      const data = (await response.json().catch(() => ({}))) as WooCheckoutResult;
+      if (!response.ok || !data.ok) {
+        return {
+          ok: false,
+          error: data.error || `Checkout failed (HTTP ${response.status}).`,
+        };
+      }
+
+      return data;
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      return {
+        ok: false,
+        error: isTimeout
+          ? 'Checkout request timed out. Please try again.'
+          : 'Network error while submitting checkout.',
+      };
+    } finally {
+      clearTimeout(timer);
+      inFlightCheckoutPromise = null;
+    }
+  })();
+
+  return inFlightCheckoutPromise;
 }

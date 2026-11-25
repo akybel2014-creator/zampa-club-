@@ -39,23 +39,3 @@ export function formatUsd(amount: number): string {
     maximumFractionDigits: 2,
   }).format(amount);
 }
-
-/**
- * Recommended WordPress PHP snippet (via WPCode plugin) to support
- * adding multiple product/variation IDs with quantities via URL:
- * https://zampaclub.it/pagamento/?add-to-cart=ID1:QTY1,ID2:QTY2
- */
-export const WPCODE_MULTI_CART_PHP_SNIPPET = `add_action('wp_loaded', function() {
-  if (empty($_REQUEST['add-to-cart'])) return;
-  $raw = sanitize_text_field($_REQUEST['add-to-cart']);
-  if (strpos($raw, ',') === false && strpos($raw, ':') === false) return;
-  $items = explode(',', $raw);
-  foreach ($items as $item) {
-    $parts = explode(':', trim($item));
-    $id = absint($parts[0]);
-    $qty = isset($parts[1]) ? max(1, absint($parts[1])) : 1;
-    if ($id > 0) WC()->cart->add_to_cart($id, $qty);
-  }
-  wp_safe_redirect(wc_get_checkout_url());
-  exit;
-}, 15);`;

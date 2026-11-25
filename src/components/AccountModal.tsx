@@ -1,9 +1,8 @@
-import { CheckCircle2, Code2, Copy, ExternalLink, Info, Package, Server, User, X } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Info, Package, Server, ShieldCheck, User, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   isWooCommerceConfigured,
   WOOCOMMERCE_CONFIG,
-  WPCODE_MULTI_CART_PHP_SNIPPET,
 } from '../config/woocommerce';
 
 interface AccountModalProps {
@@ -24,7 +23,6 @@ export function AccountModal({
   categoryCount,
 }: AccountModalProps) {
   const [activeTab, setActiveTab] = useState<'profile' | 'integration'>('profile');
-  const [copied, setCopied] = useState(false);
   const [petName, setPetName] = useState('Cooper');
   const [petType, setPetType] = useState<'Dog' | 'Cat' | 'Small Pet'>('Dog');
   const [savedNotice, setSavedNotice] = useState(false);
@@ -49,16 +47,6 @@ export function AccountModal({
   if (!isOpen) return null;
 
   const configured = isWooCommerceConfigured();
-
-  const handleCopySnippet = async () => {
-    try {
-      await navigator.clipboard.writeText(WPCODE_MULTI_CART_PHP_SNIPPET);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
-  };
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,32 +225,20 @@ export function AccountModal({
                 </div>
               </div>
 
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-[#1C1917] flex items-center gap-2">
-                    <Code2 className="w-4 h-4 text-[#C2410C]" />
-                    WPCode Snippet for Multi-Item Checkout
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={handleCopySnippet}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E7E5E4] text-xs font-medium text-[#1C1917] hover:bg-[#F5F5F4] transition-colors"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    {copied ? 'Copied!' : 'Copy PHP'}
-                  </button>
-                </div>
-                <p className="text-xs text-[#57534E] flex items-start gap-1.5">
+              <div className="rounded-xl border border-[#E7E5E4] bg-white p-4 space-y-2.5">
+                <h3 className="text-sm font-semibold text-[#1C1917] flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-[#C2410C]" />
+                  Rate-Limit Protection &amp; API Checkout
+                </h3>
+                <p className="text-xs text-[#57534E] flex items-start gap-1.5 leading-relaxed">
                   <Info className="w-3.5 h-3.5 text-[#0F766E] shrink-0 mt-0.5" />
                   <span>
-                    Paste this snippet in WordPress using the free WPCode plugin so
-                    WooCommerce accepts comma-separated product/variation IDs and
-                    quantities (<code className="font-mono">?add-to-cart=101:2,105:1</code>).
+                    Catalog products, categories, and variations are cached in memory,
+                    sessionStorage, and the edge proxy to avoid HTTP 429 bursts. Checkout
+                    submits orders via targeted WooCommerce Store/REST API calls without
+                    query-string cart redirects.
                   </span>
                 </p>
-                <pre className="p-3.5 rounded-xl bg-[#1C1917] text-[#FAFAF9] text-xs font-mono overflow-x-auto leading-relaxed">
-                  {WPCODE_MULTI_CART_PHP_SNIPPET}
-                </pre>
               </div>
             </div>
           )}

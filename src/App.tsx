@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
 import { QuickCategories } from './components/QuickCategories';
@@ -10,6 +10,7 @@ import {
   findCategoryBySlugOrAlias,
   getCachedCatalogSnapshot,
   getDescendantCategoryIds,
+  getRateLimitRemainingSeconds,
 } from './services/wooCommerceService';
 import {
   CartItem,
@@ -96,12 +97,28 @@ export default function App() {
     }
   }, [cartItems]);
 
+  const lastManualRefreshRef = useRef(0);
+
   const loadWooCommerceData = useCallback(async (forceRefresh = false) => {
-    setLoadingCatalog(true);
-    setCatalogError(null);
+    const cooldownSec = getRateLimitRemainingSeconds();
+    if (cooldownSec > 0) {
+      setCatalogError(
+        `WooCommerce rate limit cooldown active. Please wait ${cooldownSec}s before retrying.`
+      );
+      return;
+    }
+
     if (forceRefresh) {
+      const now = Date.now();
+      if (now - lastManualRefreshRef.current < 3000) {
+        return;
+      }
+      lastManualRefreshRef.current = now;
       clearWooCommerceCache();
     }
+
+    setLoadingCatalog(true);
+    setCatalogError(null);
 
     const [prodRes, catRes] = await Promise.all([
       fetchCatalogProducts(forceRefresh),
@@ -173,6 +190,7 @@ export default function App() {
   useEffect(() => {
     if (sourceMode !== 'error' && categorySourceMode !== 'error') return;
     const handleOnline = () => {
+      if (getRateLimitRemainingSeconds() > 0) return;
       loadWooCommerceData(false);
     };
     window.addEventListener('online', handleOnline);
@@ -471,10 +489,7 @@ export default function App() {
             onClose={() => setCartOpen(false)}
             onUpdateQty={handleUpdateQty}
             onRemoveItem={handleRemoveItem}
-            onOpenAccountConfig={() => {
-              setCartOpen(false);
-              setAccountOpen(true);
-            }}
+            onClearCart={() => setCartItems([])}
           />
         </Suspense>
       )}

@@ -3,7 +3,7 @@ import type { WorkerEnv, WorkerExecutionContext } from './types';
 
 const API_CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Accept',
   'Access-Control-Max-Age': '86400',
 };
@@ -24,7 +24,7 @@ export default {
   async fetch(
     request: Request,
     env: WorkerEnv,
-    _ctx: WorkerExecutionContext
+    ctx: WorkerExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
 
@@ -32,7 +32,7 @@ export default {
       url.pathname === '/api/woocommerce' ||
       url.pathname.startsWith('/api/woocommerce/')
     ) {
-      return handleWooCommerceRequest(request, env);
+      return handleWooCommerceRequest(request, env, ctx);
     }
 
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
@@ -40,7 +40,7 @@ export default {
         return new Response(null, {
           status: 204,
           headers: {
-            Allow: 'GET, OPTIONS',
+            Allow: 'GET, POST, OPTIONS',
             ...API_CORS_HEADERS,
           },
         });

@@ -34,6 +34,11 @@ export function ProductModal({
 
     if (!product.hasVariations) return;
 
+    const alreadyResolvedVariations =
+      product.variations.length > 0 &&
+      product.variations.every((v) => v.variation_id !== product.id);
+    if (alreadyResolvedVariations) return;
+
     let active = true;
     fetchProductVariations(product.id, product.price, product.regular_price).then(
       (vars) => {
