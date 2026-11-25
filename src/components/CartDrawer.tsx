@@ -43,7 +43,9 @@ export function CartDrawer({
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [orderResult, setOrderResult] = useState<WooCheckoutResult | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'woocommerce_payments'>('cod');
+  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'woocommerce_payments'>(
+    'woocommerce_payments'
+  );
   const [billing, setBilling] = useState<WooCheckoutBilling>({
     first_name: '',
     last_name: '',
@@ -202,46 +204,76 @@ export function CartDrawer({
 
         {/* Drawer Body */}
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
-          {step === 'success' && orderResult ? (
-            <div className="text-center py-8 space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-[#0F766E]/10 text-[#0F766E] flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-7 h-7" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="font-display text-xl font-bold text-[#1C1917]">
-                  Thank you! Order #{orderResult.orderNumber || orderResult.orderId}
-                </h3>
-                <p className="text-sm text-[#57534E]">
-                  Your order has been registered directly via WooCommerce API (status:{' '}
-                  <span className="font-semibold text-[#1C1917]">{orderResult.status}</span>).
-                </p>
-              </div>
+          {step === 'success' && orderResult ? (() => {
+            const checkoutTargetUrl =
+              orderResult.paymentUrl || orderResult.checkoutUrl || orderResult.redirectUrl;
+            const awaitingOnlinePayment =
+              orderResult.mode === 'wc-v3-orders' ||
+              orderResult.status === 'pending' ||
+              paymentMethod === 'woocommerce_payments';
 
-              {orderResult.paymentUrl && (
-                <a
-                  href={orderResult.paymentUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full min-h-[48px] inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-white text-sm font-bold transition-colors"
+            return (
+              <div className="text-center py-8 space-y-4">
+                <div className="w-14 h-14 rounded-2xl bg-[#0F766E]/10 text-[#0F766E] flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F5F5F4] border border-[#E7E5E4] text-[11px] font-semibold text-[#57534E]">
+                    <span>
+                      {awaitingOnlinePayment ? 'Awaiting Online Payment' : 'Order Registered'}
+                    </span>
+                    <span>·</span>
+                    <span className="uppercase text-[#1C1917]">{orderResult.status || 'pending'}</span>
+                  </div>
+                  <h3 className="font-display text-xl font-bold text-[#1C1917]">
+                    Order #{orderResult.orderNumber || orderResult.orderId}
+                  </h3>
+                  {orderResult.total && (
+                    <p className="text-sm font-semibold text-[#1C1917] tabular-nums">
+                      Total: {orderResult.total} {orderResult.currency || ''}
+                    </p>
+                  )}
+                  <p className="text-sm text-[#57534E] max-w-xs mx-auto">
+                    {awaitingOnlinePayment && checkoutTargetUrl
+                      ? 'Your order has been created on WooCommerce. Continue to our secure WooCommerce checkout page to complete your payment.'
+                      : 'Your order has been registered directly via the WooCommerce API.'}
+                  </p>
+                </div>
+
+                {checkoutTargetUrl && (
+                  <a
+                    href={checkoutTargetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`w-full min-h-[48px] inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-white text-sm font-bold transition-colors ${
+                      awaitingOnlinePayment
+                        ? 'bg-[#C2410C] hover:bg-[#9A3412]'
+                        : 'bg-[#0F766E] hover:bg-[#115E59]'
+                    }`}
+                  >
+                    <span>
+                      {awaitingOnlinePayment
+                        ? 'Complete Payment on WooCommerce'
+                        : 'View Order on WooCommerce'}
+                    </span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep('cart');
+                    setOrderResult(null);
+                    onClose();
+                  }}
+                  className="w-full min-h-[44px] px-5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm font-semibold text-[#1C1917] hover:bg-[#FAFAF9] transition-colors"
                 >
-                  <span>Complete Payment on WooCommerce</span>
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('cart');
-                  setOrderResult(null);
-                  onClose();
-                }}
-                className="w-full min-h-[44px] px-5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm font-semibold text-[#1C1917] hover:bg-[#FAFAF9] transition-colors"
-              >
-                Continue Shopping
-              </button>
-            </div>
-          ) : items.length === 0 ? (
+                  Continue Shopping
+                </button>
+              </div>
+            );
+          })() : items.length === 0 ? (
             <div className="text-center py-12 space-y-3">
               <div className="w-14 h-14 rounded-2xl bg-[#FAFAF9] border border-[#E7E5E4] flex items-center justify-center mx-auto text-[#78716C]">
                 <ShoppingBag className="w-6 h-6" />
@@ -418,22 +450,6 @@ export function CartDrawer({
                 <div className="grid grid-cols-1 gap-2">
                   <label
                     className={`min-h-[44px] flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border cursor-pointer text-sm font-medium ${
-                      paymentMethod === 'cod'
-                        ? 'border-[#C2410C] bg-[#C2410C]/5 text-[#1C1917]'
-                        : 'border-[#E7E5E4] text-[#57534E]'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="payment_method"
-                      checked={paymentMethod === 'cod'}
-                      onChange={() => setPaymentMethod('cod')}
-                      className="accent-[#C2410C]"
-                    />
-                    <span>Cash on Delivery (Instant Order API)</span>
-                  </label>
-                  <label
-                    className={`min-h-[44px] flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border cursor-pointer text-sm font-medium ${
                       paymentMethod === 'woocommerce_payments'
                         ? 'border-[#C2410C] bg-[#C2410C]/5 text-[#1C1917]'
                         : 'border-[#E7E5E4] text-[#57534E]'
@@ -447,6 +463,22 @@ export function CartDrawer({
                       className="accent-[#C2410C]"
                     />
                     <span>Card / Online Payment (WooCommerce)</span>
+                  </label>
+                  <label
+                    className={`min-h-[44px] flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border cursor-pointer text-sm font-medium ${
+                      paymentMethod === 'cod'
+                        ? 'border-[#C2410C] bg-[#C2410C]/5 text-[#1C1917]'
+                        : 'border-[#E7E5E4] text-[#57534E]'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="payment_method"
+                      checked={paymentMethod === 'cod'}
+                      onChange={() => setPaymentMethod('cod')}
+                      className="accent-[#C2410C]"
+                    />
+                    <span>Cash on Delivery (Instant Order API)</span>
                   </label>
                 </div>
               </div>

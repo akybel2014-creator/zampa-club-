@@ -451,18 +451,37 @@ async function startServer(): Promise<void> {
     }
 
     const body = (req.body || {}) as {
-      items?: { id: number; quantity: number }[];
+      items?: {
+        id?: number;
+        product_id?: number;
+        variation_id?: number;
+        quantity: number;
+      }[];
       billing?: Record<string, string>;
       payment_method?: string;
     };
 
     const rawItems = Array.isArray(body.items) ? body.items : [];
     const items = rawItems
-      .map((entry) => ({
-        id: Number.parseInt(String(entry.id), 10),
-        quantity: Math.min(Math.max(1, Number.parseInt(String(entry.quantity), 10) || 1), 99),
-      }))
-      .filter((entry) => Number.isFinite(entry.id) && entry.id > 0);
+      .map((entry) => {
+        const productId = Number.parseInt(
+          String(entry.product_id ?? entry.id ?? ''),
+          10
+        );
+        const variationIdRaw = Number.parseInt(String(entry.variation_id ?? ''), 10);
+        const variationId =
+          Number.isFinite(variationIdRaw) && variationIdRaw > 0 && variationIdRaw !== productId
+            ? variationIdRaw
+            : undefined;
+        const storeItemId = variationId ?? productId;
+        return {
+          productId,
+          variationId,
+          storeItemId,
+          quantity: Math.min(Math.max(1, Number.parseInt(String(entry.quantity), 10) || 1), 99),
+        };
+      })
+      .filter((entry) => Number.isFinite(entry.productId) && entry.productId > 0);
 
     if (items.length === 0) {
       res.status(400).json({ error: 'Cart is empty or contains invalid product IDs.' });
@@ -496,6 +515,17 @@ async function startServer(): Promise<void> {
       return;
     }
 
+    const sanitizeSafeStoreUrl = (rawUrl: unknown): string | null => {
+      if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+      try {
+        const parsed = new URL(rawUrl.trim(), storeOrigin);
+        if (parsed.protocol !== 'https:') return null;
+        return parsed.toString();
+      } catch {
+        return null;
+      }
+    };
+
     const paymentMethod = String(body.payment_method || 'cod').trim() || 'cod';
     const creds = getServerWooCredentials();
     const controller = new AbortController();
@@ -526,12 +556,24 @@ async function startServer(): Promise<void> {
               state: billing.state || '',
             },
             line_items: items.map((item) => ({
-              product_id: item.id,
+              product_id: item.productId,
+              ...(item.variationId ? { variation_id: item.variationId } : {}),
               quantity: item.quantity,
             })),
           }),
           signal: controller.signal,
         });
+
+        if (orderRes.status === 429) {
+          const retrySec = parseRetryAfterSeconds(orderRes.headers.get('retry-after'));
+          server429CooldownUntil = Date.now() + retrySec * 1000;
+          res.setHeader('Retry-After', String(retrySec));
+          res.status(429).json({
+            error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
+            retryAfterSeconds: retrySec,
+          });
+          return;
+        }
 
         const orderJson = (await orderRes.json().catch(() => ({}))) as Record<
           string,
@@ -546,12 +588,27 @@ async function startServer(): Promise<void> {
           return;
         }
 
+        const orderId = orderJson.id as number | undefined;
+        const orderKey = typeof orderJson.order_key === 'string' ? orderJson.order_key : undefined;
+        const fallbackOrderPayUrl =
+          orderId && orderKey
+            ? `${storeOrigin}/pagamento/order-pay/${orderId}/?pay_for_order=true&key=${encodeURIComponent(orderKey)}`
+            : `${storeOrigin}/pagamento/`;
+        const safePaymentUrl =
+          sanitizeSafeStoreUrl(orderJson.payment_url) || fallbackOrderPayUrl;
+
         res.json({
           ok: true,
-          orderId: orderJson.id,
-          orderNumber: orderJson.number || String(orderJson.id || ''),
-          status: orderJson.status || 'pending',
-          paymentUrl: orderJson.payment_url || `${storeOrigin}/pagamento/`,
+          mode: 'wc-v3-orders',
+          orderId,
+          orderNumber: String(orderJson.number || orderId || ''),
+          orderKey,
+          status: String(orderJson.status || 'pending'),
+          total: typeof orderJson.total === 'string' ? orderJson.total : undefined,
+          currency: typeof orderJson.currency === 'string' ? orderJson.currency : undefined,
+          paymentUrl: safePaymentUrl,
+          checkoutUrl: safePaymentUrl,
+          redirectUrl: safePaymentUrl,
         });
         return;
       }
@@ -596,7 +653,7 @@ async function startServer(): Promise<void> {
             Nonce: nonce,
             ...(cartToken ? { 'Cart-Token': cartToken } : {}),
           },
-          body: JSON.stringify({ id: item.id, quantity: item.quantity }),
+          body: JSON.stringify({ id: item.storeItemId, quantity: item.quantity }),
           signal: controller.signal,
         });
 
@@ -605,6 +662,17 @@ async function startServer(): Promise<void> {
         if (refreshedNonce) nonce = refreshedNonce;
         if (refreshedToken) cartToken = refreshedToken;
 
+        if (addRes.status === 429) {
+          const retrySec = parseRetryAfterSeconds(addRes.headers.get('retry-after'));
+          server429CooldownUntil = Date.now() + retrySec * 1000;
+          res.setHeader('Retry-After', String(retrySec));
+          res.status(429).json({
+            error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
+            retryAfterSeconds: retrySec,
+          });
+          return;
+        }
+
         if (!addRes.ok) {
           const errPayload = (await addRes.json().catch(() => ({}))) as {
             message?: string;
@@ -612,7 +680,7 @@ async function startServer(): Promise<void> {
           res.status(addRes.status).json({
             error:
               errPayload.message ||
-              `Failed to add product #${item.id} to WooCommerce cart (HTTP ${addRes.status}).`,
+              `Failed to add product #${item.storeItemId} to WooCommerce cart (HTTP ${addRes.status}).`,
           });
           return;
         }
@@ -644,30 +712,55 @@ async function startServer(): Promise<void> {
         signal: controller.signal,
       });
 
+      if (checkoutRes.status === 429) {
+        const retrySec = parseRetryAfterSeconds(checkoutRes.headers.get('retry-after'));
+        server429CooldownUntil = Date.now() + retrySec * 1000;
+        res.setHeader('Retry-After', String(retrySec));
+        res.status(429).json({
+          error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
+          retryAfterSeconds: retrySec,
+        });
+        return;
+      }
+
       const checkoutPayload = (await checkoutRes.json().catch(() => ({}))) as {
         order_id?: number;
         order_number?: string;
+        order_key?: string;
         status?: string;
         message?: string;
         payment_result?: { redirect_url?: string };
       };
 
       if (!checkoutRes.ok) {
+        const baseMsg =
+          checkoutPayload.message ||
+          `WooCommerce checkout error (HTTP ${checkoutRes.status}).`;
+        const hint =
+          paymentMethod !== 'cod' && !creds
+            ? ' Online card payment URLs require WC_CONSUMER_KEY and WC_CONSUMER_SECRET configured on the server (or select Cash on Delivery).'
+            : '';
         res.status(checkoutRes.status).json({
-          error:
-            checkoutPayload.message ||
-            `WooCommerce checkout error (HTTP ${checkoutRes.status}).`,
+          error: `${baseMsg}${hint}`,
         });
         return;
       }
 
+      const safeRedirectUrl = sanitizeSafeStoreUrl(
+        checkoutPayload.payment_result?.redirect_url
+      );
+
       res.json({
         ok: true,
+        mode: 'wc-store-api',
         orderId: checkoutPayload.order_id,
         orderNumber:
           checkoutPayload.order_number || String(checkoutPayload.order_id || ''),
+        orderKey: checkoutPayload.order_key,
         status: checkoutPayload.status || 'processing',
-        paymentUrl: checkoutPayload.payment_result?.redirect_url || null,
+        paymentUrl: safeRedirectUrl,
+        checkoutUrl: safeRedirectUrl,
+        redirectUrl: safeRedirectUrl,
       });
     } catch (err) {
       const isTimeout = err instanceof Error && err.name === 'AbortError';

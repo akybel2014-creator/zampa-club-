@@ -1244,11 +1244,28 @@ export interface WooCheckoutBilling {
 
 export interface WooCheckoutResult {
   ok: boolean;
+  mode?: 'wc-v3-orders' | 'wc-store-api';
   orderId?: number;
   orderNumber?: string;
+  orderKey?: string;
   status?: string;
+  total?: string;
+  currency?: string;
   paymentUrl?: string | null;
+  checkoutUrl?: string | null;
+  redirectUrl?: string | null;
   error?: string;
+}
+
+function sanitizeSafeCheckoutUrl(rawUrl: unknown): string | null {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1258,7 +1275,7 @@ export interface WooCheckoutResult {
 export async function submitWooCommerceCheckout(
   items: CartItem[],
   billing: WooCheckoutBilling,
-  paymentMethod: 'cod' | 'woocommerce_payments' = 'cod'
+  paymentMethod: 'cod' | 'woocommerce_payments' = 'woocommerce_payments'
 ): Promise<WooCheckoutResult> {
   if (items.length === 0) {
     return { ok: false, error: 'Your cart is empty.' };
@@ -1283,6 +1300,8 @@ export async function submitWooCommerceCheckout(
       item.variation.variation_id !== item.product.id;
     return {
       id: hasVariationId ? item.variation.variation_id : item.product.id,
+      product_id: item.product.id,
+      ...(hasVariationId ? { variation_id: item.variation.variation_id } : {}),
       quantity: item.quantity,
     };
   });
@@ -1330,7 +1349,17 @@ export async function submitWooCommerceCheckout(
         };
       }
 
-      return data;
+      const resolvedUrl =
+        sanitizeSafeCheckoutUrl(data.paymentUrl) ||
+        sanitizeSafeCheckoutUrl(data.checkoutUrl) ||
+        sanitizeSafeCheckoutUrl(data.redirectUrl);
+
+      return {
+        ...data,
+        paymentUrl: resolvedUrl,
+        checkoutUrl: sanitizeSafeCheckoutUrl(data.checkoutUrl) || resolvedUrl,
+        redirectUrl: sanitizeSafeCheckoutUrl(data.redirectUrl) || resolvedUrl,
+      };
     } catch (err) {
       const isTimeout = err instanceof Error && err.name === 'AbortError';
       return {

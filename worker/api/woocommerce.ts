@@ -322,7 +322,9 @@ async function fetchUpstreamWithCoalescing(
 }
 
 interface CheckoutItemInput {
-  id: number;
+  id?: number;
+  product_id?: number;
+  variation_id?: number;
   quantity: number;
 }
 
@@ -342,6 +344,20 @@ interface CheckoutRequestBody {
   items?: CheckoutItemInput[];
   billing?: Partial<CheckoutBillingInput>;
   payment_method?: string;
+}
+
+function sanitizeSafeStoreRedirectUrl(
+  rawUrl: unknown,
+  storeOrigin: string
+): string | null {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+  try {
+    const parsed = new URL(rawUrl.trim(), storeOrigin);
+    if (parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 async function handleApiCheckout(
@@ -374,11 +390,25 @@ async function handleApiCheckout(
 
   const rawItems = Array.isArray(body.items) ? body.items : [];
   const items = rawItems
-    .map((entry) => ({
-      id: Number.parseInt(String(entry.id), 10),
-      quantity: Math.min(Math.max(1, Number.parseInt(String(entry.quantity), 10) || 1), 99),
-    }))
-    .filter((entry) => Number.isFinite(entry.id) && entry.id > 0);
+    .map((entry) => {
+      const productId = Number.parseInt(
+        String(entry.product_id ?? entry.id ?? ''),
+        10
+      );
+      const variationIdRaw = Number.parseInt(String(entry.variation_id ?? ''), 10);
+      const variationId =
+        Number.isFinite(variationIdRaw) && variationIdRaw > 0 && variationIdRaw !== productId
+          ? variationIdRaw
+          : undefined;
+      const storeItemId = variationId ?? productId;
+      return {
+        productId,
+        variationId,
+        storeItemId,
+        quantity: Math.min(Math.max(1, Number.parseInt(String(entry.quantity), 10) || 1), 99),
+      };
+    })
+    .filter((entry) => Number.isFinite(entry.productId) && entry.productId > 0);
 
   if (items.length === 0) {
     return jsonResponse({ error: 'Cart is empty or contains invalid product IDs.' }, 400);
@@ -420,7 +450,8 @@ async function handleApiCheckout(
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
   try {
-    // If REST v3 credentials are configured and online card payment is requested, create order via v3 and return clean order-pay URL
+    // When REST v3 credentials are configured on Worker env and online payment is requested,
+    // create a real WooCommerce order and return its payment_url so the user completes payment on zampaclub.it.
     if (hasServerCreds && paymentMethod !== 'cod') {
       const orderRes = await fetch(`${storeOrigin}/wp-json/wc/v3/orders`, {
         method: 'POST',
@@ -444,7 +475,8 @@ async function handleApiCheckout(
             state: billing.state || '',
           },
           line_items: items.map((item) => ({
-            product_id: item.id,
+            product_id: item.productId,
+            ...(item.variationId ? { variation_id: item.variationId } : {}),
             quantity: item.quantity,
           })),
         }),
@@ -481,12 +513,28 @@ async function handleApiCheckout(
         );
       }
 
+      const orderId = orderJson.id as number | undefined;
+      const orderKey = typeof orderJson.order_key === 'string' ? orderJson.order_key : undefined;
+      const fallbackOrderPayUrl =
+        orderId && orderKey
+          ? `${storeOrigin}/pagamento/order-pay/${orderId}/?pay_for_order=true&key=${encodeURIComponent(orderKey)}`
+          : `${storeOrigin}/pagamento/`;
+      const safePaymentUrl =
+        sanitizeSafeStoreRedirectUrl(orderJson.payment_url, storeOrigin) ||
+        fallbackOrderPayUrl;
+
       return jsonResponse({
         ok: true,
-        orderId: orderJson.id,
-        orderNumber: orderJson.number || String(orderJson.id || ''),
-        status: orderJson.status || 'pending',
-        paymentUrl: orderJson.payment_url || `${storeOrigin}/pagamento/`,
+        mode: 'wc-v3-orders',
+        orderId,
+        orderNumber: String(orderJson.number || orderId || ''),
+        orderKey,
+        status: String(orderJson.status || 'pending'),
+        total: typeof orderJson.total === 'string' ? orderJson.total : undefined,
+        currency: typeof orderJson.currency === 'string' ? orderJson.currency : undefined,
+        paymentUrl: safePaymentUrl,
+        checkoutUrl: safePaymentUrl,
+        redirectUrl: safePaymentUrl,
       });
     }
 
@@ -532,7 +580,7 @@ async function handleApiCheckout(
           ...(cartToken ? { 'Cart-Token': cartToken } : {}),
         },
         body: JSON.stringify({
-          id: item.id,
+          id: item.storeItemId,
           quantity: item.quantity,
         }),
         signal: controller.signal,
@@ -560,7 +608,7 @@ async function handleApiCheckout(
           {
             error:
               errPayload.message ||
-              `Failed to add product #${item.id} to WooCommerce cart (HTTP ${addRes.status}).`,
+              `Failed to add product #${item.storeItemId} to WooCommerce cart (HTTP ${addRes.status}).`,
           },
           addRes.status
         );
@@ -596,6 +644,7 @@ async function handleApiCheckout(
     const checkoutPayload = (await checkoutRes.json().catch(() => ({}))) as {
       order_id?: number;
       order_number?: string;
+      order_key?: string;
       status?: string;
       message?: string;
       payment_result?: {
@@ -616,23 +665,37 @@ async function handleApiCheckout(
     }
 
     if (!checkoutRes.ok) {
+      const baseMsg =
+        checkoutPayload.message ||
+        `WooCommerce checkout error (HTTP ${checkoutRes.status}).`;
+      const hint =
+        paymentMethod !== 'cod' && !hasServerCreds
+          ? ' Online card payment URLs require WC_CONSUMER_KEY and WC_CONSUMER_SECRET configured in Worker secrets (or select Cash on Delivery).'
+          : '';
       return jsonResponse(
         {
-          error:
-            checkoutPayload.message ||
-            `WooCommerce checkout error (HTTP ${checkoutRes.status}).`,
+          error: `${baseMsg}${hint}`,
         },
         checkoutRes.status
       );
     }
 
+    const safeRedirectUrl = sanitizeSafeStoreRedirectUrl(
+      checkoutPayload.payment_result?.redirect_url,
+      storeOrigin
+    );
+
     return jsonResponse({
       ok: true,
+      mode: 'wc-store-api',
       orderId: checkoutPayload.order_id,
       orderNumber:
         checkoutPayload.order_number || String(checkoutPayload.order_id || ''),
+      orderKey: checkoutPayload.order_key,
       status: checkoutPayload.status || 'processing',
-      paymentUrl: checkoutPayload.payment_result?.redirect_url || null,
+      paymentUrl: safeRedirectUrl,
+      checkoutUrl: safeRedirectUrl,
+      redirectUrl: safeRedirectUrl,
     });
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === 'AbortError';
