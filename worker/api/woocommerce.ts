@@ -1,14 +1,4 @@
-interface CloudflareEnv {
-  WP_STORE_URL?: string;
-  WC_CONSUMER_KEY?: string;
-  WC_CONSUMER_SECRET?: string;
-}
-
-interface PagesFunctionContext {
-  request: Request;
-  env: CloudflareEnv;
-  params: Record<string, string | string[] | undefined>;
-}
+import type { WorkerEnv } from '../types';
 
 const DEFAULT_STORE_URL = 'https://zampaclub.it';
 const UPSTREAM_TIMEOUT_MS = 15000;
@@ -82,21 +72,12 @@ function resolveStoreOrigin(rawStoreUrl?: string): string {
   return parsed.origin;
 }
 
-function resolveSubPath(context: PagesFunctionContext, requestUrl: URL): string {
-  const rawParam = context.params?.path;
-  let segments: string[] = [];
-
-  if (Array.isArray(rawParam)) {
-    segments = rawParam.map((s) => String(s).trim()).filter(Boolean);
-  } else if (typeof rawParam === 'string' && rawParam.trim()) {
-    segments = rawParam.split('/').map((s) => s.trim()).filter(Boolean);
-  } else {
-    segments = requestUrl.pathname
-      .replace(/^\/api\/woocommerce\/?/, '')
-      .split('/')
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
+function resolveSubPath(requestUrl: URL): string {
+  const segments = requestUrl.pathname
+    .replace(/^\/api\/woocommerce\/?/, '')
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   return segments.join('/');
 }
@@ -174,10 +155,11 @@ function buildSafeUpstreamSearchParams(
   return out;
 }
 
-export async function onRequest(context: PagesFunctionContext): Promise<Response> {
+export async function handleWooCommerceRequest(
+  request: Request,
+  env: WorkerEnv
+): Promise<Response> {
   try {
-    const { request, env } = context;
-
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -195,7 +177,7 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
     }
 
     const requestUrl = new URL(request.url);
-    const subPath = resolveSubPath(context, requestUrl);
+    const subPath = resolveSubPath(requestUrl);
 
     if (!subPath || !isAllowedWooPath(subPath)) {
       return jsonResponse(
@@ -243,7 +225,6 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
       ).toString();
       headers.Authorization = encodeBasicAuth(consumerKey, consumerSecret);
     } else {
-      // Fallback to WooCommerce public Store API when v3 credentials are not configured in Pages env
       const variationsMatch = subPath.match(/^products\/(\d+)\/variations$/);
       const storeSubPath = variationsMatch
         ? `products/${variationsMatch[1]}`
@@ -325,14 +306,14 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
         {
           error: isTimeout
             ? 'WooCommerce upstream request timed out'
-            : 'Unable to reach WooCommerce store from Cloudflare Pages Function',
+            : 'Unable to reach WooCommerce store from Cloudflare Worker',
         },
         isTimeout ? 504 : 502
       );
     }
   } catch {
     return jsonResponse(
-      { error: 'Unexpected error in WooCommerce proxy function' },
+      { error: 'Unexpected error in WooCommerce Worker proxy' },
       500
     );
   }
