@@ -1,5 +1,6 @@
-import { CheckCircle2, Mail, MapPin, Phone, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Mail, MapPin, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { MacroCategorySlug, WooCategory } from '../types/shop';
 import { ZampaLogo } from './ZampaLogo';
 
@@ -10,13 +11,26 @@ interface FooterProps {
     subFilter?: string,
     categoryId?: number
   ) => void;
-  onOpenAccount: () => void;
+  onOpenAccount?: () => void;
 }
+
+const CUSTOMER_CARE_LINKS = [
+  { label: 'FAQ', href: '/faq' },
+  { label: 'Track Order', href: '/track-order' },
+  { label: 'Shipping Policy', href: '/shipping-policy' },
+  { label: 'Returns & Warranty', href: '/returns-warranty' },
+  { label: 'Contact Us', href: '/contact' },
+];
+
+const LEGAL_POLICY_LINKS = [
+  { label: 'Privacy Policy', href: '/privacy-policy' },
+  { label: 'Terms of Service', href: '/terms-of-service' },
+  { label: 'Refund Policy', href: '/refund-policy' },
+];
 
 export function Footer({
   wooCategories,
   onSelectCategory,
-  onOpenAccount,
 }: FooterProps) {
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
@@ -32,10 +46,10 @@ export function Footer({
 
   return (
     <footer className="defer-section bg-white border-t border-[#E7E5E4] mt-16">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-24 sm:py-12 lg:py-16">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-10 lg:gap-8">
           {/* Brand & Newsletter */}
-          <div className="lg:col-span-5 space-y-5">
+          <div className="md:col-span-2 lg:col-span-4 space-y-5">
             <ZampaLogo size="md" />
             <p className="text-sm text-[#57534E] leading-relaxed max-w-md">
               A modern pet boutique dedicated to the everyday comfort of dogs, cats, and
@@ -105,37 +119,51 @@ export function Footer({
             </ul>
           </div>
 
-          {/* Shipping & Support */}
-          <div className="lg:col-span-3 space-y-3.5">
-            <h3 className="text-sm font-bold text-[#1C1917]">Shipping &amp; Support</h3>
-            <ul className="space-y-2.5 text-sm text-[#57534E]">
-              <li>Free US shipping over $39 ($4.90 flat rate below)</li>
-              <li>Tracked delivery in 4–7 business days</li>
-              <li>Easy 30-day returns &amp; exchanges</li>
-              <li>
-                <button
-                  type="button"
-                  onClick={onOpenAccount}
-                  className="hover:text-[#C2410C] transition-colors text-left font-medium text-[#1C1917]"
-                >
-                  WooCommerce Connection Status
-                </button>
-              </li>
+          {/* Customer Care */}
+          <div className="lg:col-span-2 space-y-3.5">
+            <h3 className="text-sm font-bold text-[#1C1917]">Customer Care</h3>
+            <ul className="space-y-2 text-sm text-[#57534E]">
+              {CUSTOMER_CARE_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    to={link.href}
+                    className="py-1 inline-block hover:text-[#C2410C] transition-colors"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
             <div className="pt-2 space-y-1.5 text-xs text-[#57534E]">
-              <div className="flex items-center gap-2">
-                <Mail className="w-3.5 h-3.5 text-[#0F766E]" />
+              <a
+                href="mailto:hello@zampaclub.it"
+                className="flex items-center gap-2 hover:text-[#C2410C] transition-colors"
+              >
+                <Mail className="w-3.5 h-3.5 text-[#0F766E] shrink-0" />
                 <span>hello@zampaclub.it</span>
-              </div>
+              </a>
               <div className="flex items-center gap-2">
-                <Phone className="w-3.5 h-3.5 text-[#0F766E]" />
-                <span>Mon–Fri 9am–6pm EST · Pet Lover Support</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <MapPin className="w-3.5 h-3.5 text-[#0F766E]" />
+                <MapPin className="w-3.5 h-3.5 text-[#0F766E] shrink-0" />
                 <span>Shipping across the United States</span>
               </div>
             </div>
+          </div>
+
+          {/* Legal & Policies */}
+          <div className="lg:col-span-2 space-y-3.5">
+            <h3 className="text-sm font-bold text-[#1C1917]">Legal &amp; Policies</h3>
+            <ul className="space-y-2 text-sm text-[#57534E]">
+              {LEGAL_POLICY_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    to={link.href}
+                    className="py-1 inline-block hover:text-[#C2410C] transition-colors"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
 
           {/* Secure Payments */}
@@ -166,11 +194,17 @@ export function Footer({
         <div className="mt-10 pt-6 border-t border-[#E7E5E4] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#57534E]">
           <p>© {new Date().getFullYear()} Zampa Club · Modern Pet Boutique. All rights reserved.</p>
           <div className="flex items-center gap-4">
-            <span>Privacy Policy</span>
+            <Link to="/privacy-policy" className="hover:text-[#C2410C] transition-colors">
+              Privacy Policy
+            </Link>
             <span aria-hidden="true">·</span>
-            <span>Terms of Service</span>
+            <Link to="/terms-of-service" className="hover:text-[#C2410C] transition-colors">
+              Terms of Service
+            </Link>
             <span aria-hidden="true">·</span>
-            <span>Returns &amp; Warranty</span>
+            <Link to="/returns-warranty" className="hover:text-[#C2410C] transition-colors">
+              Returns &amp; Warranty
+            </Link>
           </div>
         </div>
       </div>

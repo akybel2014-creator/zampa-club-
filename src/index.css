@@ -51,3 +51,17 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 520px;
 }
+
+body[data-overlay-open="true"] #tidio-chat,
+body[data-overlay-open="true"] #tidio-chat-iframe {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+@media (max-width: 767px) {
+  #tidio-chat-iframe {
+    bottom: max(12px, env(safe-area-inset-bottom)) !important;
+    right: 8px !important;
+  }
+}

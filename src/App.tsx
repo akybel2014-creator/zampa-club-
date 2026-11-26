@@ -1,7 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
 import { QuickCategories } from './components/QuickCategories';
+import { syncTidioOverlayState } from './config/tidio';
 import { useCart } from './context/CartContext';
 import {
   buildMegaCategoriesFromWoo,
@@ -41,10 +43,46 @@ const CartDrawer = lazy(() =>
 const AccountModal = lazy(() =>
   import('./components/AccountModal').then((m) => ({ default: m.AccountModal }))
 );
+const FaqPage = lazy(() =>
+  import('./pages/FaqPage').then((m) => ({ default: m.FaqPage }))
+);
+const ShippingPolicyPage = lazy(() =>
+  import('./pages/ShippingPolicyPage').then((m) => ({
+    default: m.ShippingPolicyPage,
+  }))
+);
+const ReturnsWarrantyPage = lazy(() =>
+  import('./pages/ReturnsWarrantyPage').then((m) => ({
+    default: m.ReturnsWarrantyPage,
+  }))
+);
+const PrivacyPolicyPage = lazy(() =>
+  import('./pages/PrivacyPolicyPage').then((m) => ({
+    default: m.PrivacyPolicyPage,
+  }))
+);
+const TermsOfServicePage = lazy(() =>
+  import('./pages/TermsOfServicePage').then((m) => ({
+    default: m.TermsOfServicePage,
+  }))
+);
 
 export type ConnectionStatus = 'loading' | 'woocommerce' | 'error';
 
+const ROUTE_TITLES: Record<string, string> = {
+  '/': 'Zampa Club · Curated Comfort for Happy Pets',
+  '/faq': 'FAQ · Zampa Club',
+  '/shipping-policy': 'Shipping & Delivery Policy · Zampa Club',
+  '/returns-warranty': '30-Day Money-Back Guarantee & Returns · Zampa Club',
+  '/refund-policy': '30-Day Money-Back Guarantee & Returns · Zampa Club',
+  '/privacy-policy': 'Privacy Policy · Zampa Club',
+  '/terms-of-service': 'Terms of Service · Zampa Club',
+};
+
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [initialCache] = useState(() => getCachedCatalogSnapshot());
   const hasWarmCache = Boolean(
     initialCache.products &&
@@ -92,6 +130,26 @@ export default function App() {
 
   const lastManualRefreshRef = useRef(0);
   const didInitialCartSyncRef = useRef(false);
+  const pendingCatalogScrollRef = useRef(false);
+
+  useEffect(() => {
+    const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
+    document.title =
+      ROUTE_TITLES[normalizedPath] || 'Zampa Club · Curated Comfort for Happy Pets';
+
+    if (pendingCatalogScrollRef.current && normalizedPath === '/') {
+      pendingCatalogScrollRef.current = false;
+      const timerId = window.setTimeout(() => {
+        const el = document.getElementById('product-catalog');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 90);
+      return () => window.clearTimeout(timerId);
+    }
+
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [location.pathname]);
 
   const loadWooCommerceData = useCallback(async (forceRefresh = false) => {
     const cooldownSec = getRateLimitRemainingSeconds();
@@ -202,6 +260,16 @@ export default function App() {
     return () => window.clearTimeout(timerId);
   }, [cartToken, loadingCatalog, allProducts, syncCart]);
 
+  const hasOpenOverlay = Boolean(selectedProduct) || cartOpen || accountOpen;
+  useEffect(() => {
+    syncTidioOverlayState(hasOpenOverlay);
+    const onTidioReady = () => syncTidioOverlayState(hasOpenOverlay);
+    document.addEventListener('tidioChat-ready', onTidioReady);
+    return () => {
+      document.removeEventListener('tidioChat-ready', onTidioReady);
+    };
+  }, [hasOpenOverlay]);
+
   const megaCategories = useMemo(
     () => buildMegaCategoriesFromWoo(wooCategories, allProducts),
     [wooCategories, allProducts]
@@ -233,6 +301,13 @@ export default function App() {
     setActiveCategoryId(resolvedId);
     setActiveSubFilter(subFilter || null);
     setActiveTab('all');
+
+    if (location.pathname !== '/') {
+      pendingCatalogScrollRef.current = true;
+      navigate('/');
+      return;
+    }
+
     scrollToCatalog();
   };
 
@@ -249,6 +324,12 @@ export default function App() {
     setActiveSubFilter(null);
     setActiveTab('all');
     setSearchQuery('');
+
+    if (location.pathname !== '/') {
+      navigate('/');
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const handleOpenCart = useCallback(() => {
@@ -395,56 +476,121 @@ export default function App() {
       />
 
       <main className="flex-1">
-        <HeroSection
-          onExploreBestSellers={() => {
-            handleResetFilters();
-            setSortBy('popular');
-            scrollToCatalog();
-          }}
-          onSelectCategory={(slug) => handleSelectCategory(slug)}
-        />
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <>
+                <HeroSection
+                  onExploreBestSellers={() => {
+                    handleResetFilters();
+                    setSortBy('popular');
+                    scrollToCatalog();
+                  }}
+                  onSelectCategory={(slug) => handleSelectCategory(slug)}
+                />
 
-        <QuickCategories
-          wooCategories={wooCategories}
-          loading={loadingCatalog}
-          activeCategorySlug={activeMacroCategory}
-          activeCategoryId={activeCategoryId}
-          onSelectCategory={handleSelectCategory}
-        />
+                <QuickCategories
+                  wooCategories={wooCategories}
+                  loading={loadingCatalog}
+                  activeCategorySlug={activeMacroCategory}
+                  activeCategoryId={activeCategoryId}
+                  onSelectCategory={handleSelectCategory}
+                />
 
-        <Suspense
-          fallback={
-            <section
-              id="product-catalog"
-              className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[420px]"
-            />
-          }
-        >
-          <CatalogSection
-            products={filteredProducts}
-            allProducts={allProducts}
-            wooCategories={wooCategories}
-            loading={loadingCatalog}
-            errorMessage={catalogError}
-            activeTab={activeTab}
-            activeMacroCategory={activeMacroCategory}
-            activeCategoryId={activeCategoryId}
-            activeSubFilter={activeSubFilter}
-            searchQuery={searchQuery}
-            sortBy={sortBy}
-            onChangeTab={handleChangeTab}
-            onSelectCategory={handleSelectCategory}
-            onChangeSort={setSortBy}
-            onResetFilters={handleResetFilters}
-            onRetry={() => loadWooCommerceData(true)}
-            onOpenProduct={setSelectedProduct}
-            onQuickAdd={handleQuickAdd}
+                <Suspense
+                  fallback={
+                    <section
+                      id="product-catalog"
+                      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[420px]"
+                    />
+                  }
+                >
+                  <CatalogSection
+                    products={filteredProducts}
+                    allProducts={allProducts}
+                    wooCategories={wooCategories}
+                    loading={loadingCatalog}
+                    errorMessage={catalogError}
+                    activeTab={activeTab}
+                    activeMacroCategory={activeMacroCategory}
+                    activeCategoryId={activeCategoryId}
+                    activeSubFilter={activeSubFilter}
+                    searchQuery={searchQuery}
+                    sortBy={sortBy}
+                    onChangeTab={handleChangeTab}
+                    onSelectCategory={handleSelectCategory}
+                    onChangeSort={setSortBy}
+                    onResetFilters={handleResetFilters}
+                    onRetry={() => loadWooCommerceData(true)}
+                    onOpenProduct={setSelectedProduct}
+                    onQuickAdd={handleQuickAdd}
+                  />
+                </Suspense>
+
+                <Suspense fallback={null}>
+                  <WhyZampaAndReviews />
+                </Suspense>
+              </>
+            }
           />
-        </Suspense>
 
-        <Suspense fallback={null}>
-          <WhyZampaAndReviews />
-        </Suspense>
+          <Route
+            path="/faq"
+            element={
+              <Suspense fallback={<div className="min-h-[60vh]" />}>
+                <FaqPage />
+              </Suspense>
+            }
+          />
+
+          <Route
+            path="/shipping-policy"
+            element={
+              <Suspense fallback={<div className="min-h-[60vh]" />}>
+                <ShippingPolicyPage />
+              </Suspense>
+            }
+          />
+
+          <Route
+            path="/returns-warranty"
+            element={
+              <Suspense fallback={<div className="min-h-[60vh]" />}>
+                <ReturnsWarrantyPage />
+              </Suspense>
+            }
+          />
+
+          <Route
+            path="/refund-policy"
+            element={
+              <Suspense fallback={<div className="min-h-[60vh]" />}>
+                <ReturnsWarrantyPage />
+              </Suspense>
+            }
+          />
+
+          <Route
+            path="/privacy-policy"
+            element={
+              <Suspense fallback={<div className="min-h-[60vh]" />}>
+                <PrivacyPolicyPage />
+              </Suspense>
+            }
+          />
+
+          <Route
+            path="/terms-of-service"
+            element={
+              <Suspense fallback={<div className="min-h-[60vh]" />}>
+                <TermsOfServicePage />
+              </Suspense>
+            }
+          />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
 
       <Suspense fallback={null}>
