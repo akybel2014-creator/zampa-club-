@@ -1483,6 +1483,7 @@ export interface WooCheckoutResult {
   total?: string;
   currency?: string;
   payment_url?: string | null;
+  checkout_url?: string | null;
   paymentUrl?: string | null;
   checkoutUrl?: string | null;
   redirectUrl?: string | null;
@@ -1593,6 +1594,7 @@ export async function submitWooCommerceCheckout(
 
       const resolvedUrl =
         sanitizeSafeCheckoutUrl(data.payment_url) ||
+        sanitizeSafeCheckoutUrl(data.checkout_url) ||
         sanitizeSafeCheckoutUrl(data.paymentUrl) ||
         sanitizeSafeCheckoutUrl(data.checkoutUrl) ||
         sanitizeSafeCheckoutUrl(data.redirectUrl);
@@ -1600,6 +1602,7 @@ export async function submitWooCommerceCheckout(
       return {
         ...data,
         payment_url: resolvedUrl,
+        checkout_url: sanitizeSafeCheckoutUrl(data.checkout_url) || resolvedUrl,
         paymentUrl: resolvedUrl,
         checkoutUrl: sanitizeSafeCheckoutUrl(data.checkoutUrl) || resolvedUrl,
         redirectUrl: sanitizeSafeCheckoutUrl(data.redirectUrl) || resolvedUrl,

@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  ExternalLink,
   Loader2,
   Minus,
   Plus,
@@ -12,13 +11,12 @@ import {
   Truck,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatUsd, WOOCOMMERCE_CONFIG } from '../config/woocommerce';
 import { useCart } from '../context/CartContext';
 import {
   sanitizeSafeCheckoutUrl,
   WooCheckoutBilling,
-  WooCheckoutResult,
 } from '../services/wooCommerceService';
 import { CartItem } from '../types/shop';
 import { ResilientImage } from './ResilientImage';
@@ -41,11 +39,11 @@ export function CartDrawer({
   onClearCart,
 }: CartDrawerProps) {
   const { checkout, syncingCart } = useCart();
-  const [step, setStep] = useState<'cart' | 'checkout' | 'success'>('cart');
+  const [step, setStep] = useState<'cart' | 'checkout'>('cart');
   const [submitting, setSubmitting] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [orderResult, setOrderResult] = useState<WooCheckoutResult | null>(null);
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'woocommerce_payments'>(
     'woocommerce_payments'
   );
@@ -93,43 +91,46 @@ export function CartDrawer({
   }, [isOpen, onClose]);
 
   useEffect(() => {
-    if (isOpen && items.length > 0 && step === 'success') {
-      setStep('cart');
-      setOrderResult(null);
-      setRedirecting(false);
-      setCheckoutError(null);
+    if (checkoutError && errorBannerRef.current) {
+      errorBannerRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-  }, [isOpen, items.length, step]);
+  }, [checkoutError]);
 
   if (!isOpen) return null;
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting || redirecting) return;
 
     setSubmitting(true);
     setCheckoutError(null);
 
-    const res = await checkout(billing, paymentMethod);
+    const data = await checkout(billing, paymentMethod);
     setSubmitting(false);
 
-    if (!res.ok) {
-      setCheckoutError(res.error || 'Unable to complete checkout.');
+    if (!data.ok) {
+      setCheckoutError(data.error || 'Unable to create WooCommerce order.');
       return;
     }
 
     const paymentUrl = sanitizeSafeCheckoutUrl(
-      res.payment_url || res.paymentUrl || res.checkoutUrl || res.redirectUrl
+      data.payment_url ||
+        data.checkout_url ||
+        data.paymentUrl ||
+        data.checkoutUrl ||
+        data.redirectUrl
     );
 
-    setOrderResult(res);
-    setStep('success');
-    onClearCart();
-
-    if (paymentUrl) {
-      setRedirecting(true);
-      window.location.href = paymentUrl;
+    if (!paymentUrl) {
+      setCheckoutError(
+        'Order created, but WooCommerce did not return a valid payment URL.'
+      );
+      return;
     }
+
+    setRedirecting(true);
+    onClearCart();
+    window.location.href = paymentUrl;
   };
 
   return (
@@ -166,9 +167,7 @@ export function CartDrawer({
             <h2 className="font-display text-lg font-bold text-[#1C1917] truncate">
               {step === 'checkout'
                 ? 'Express Checkout'
-                : step === 'success'
-                  ? 'Order Confirmed'
-                  : `Your Cart (${items.reduce((acc, i) => acc + i.quantity, 0)})`}
+                : `Your Cart (${items.reduce((acc, i) => acc + i.quantity, 0)})`}
             </h2>
           </div>
           <button
@@ -182,146 +181,74 @@ export function CartDrawer({
         </div>
 
         {/* Free Shipping Progress Bar */}
-        {step !== 'success' && (
-          <div className="px-4 sm:px-6 py-3.5 bg-[#FAFAF9] border-b border-[#E7E5E4] space-y-2 shrink-0">
-            <div className="flex items-center justify-between gap-2 text-xs font-medium">
-              {remainingForFreeShipping > 0 ? (
-                <span className="text-[#1C1917] flex items-center gap-1.5 min-w-0">
-                  <Truck className="w-4 h-4 text-[#C2410C] shrink-0" />
-                  <span>
-                    Add{' '}
-                    <strong className="tabular-nums text-[#C2410C]">
-                      {formatUsd(remainingForFreeShipping)}
-                    </strong>{' '}
-                    more for free shipping
-                  </span>
+        <div className="px-4 sm:px-6 py-3.5 bg-[#FAFAF9] border-b border-[#E7E5E4] space-y-2 shrink-0">
+          <div className="flex items-center justify-between gap-2 text-xs font-medium">
+            {remainingForFreeShipping > 0 ? (
+              <span className="text-[#1C1917] flex items-center gap-1.5 min-w-0">
+                <Truck className="w-4 h-4 text-[#C2410C] shrink-0" />
+                <span>
+                  Add{' '}
+                  <strong className="tabular-nums text-[#C2410C]">
+                    {formatUsd(remainingForFreeShipping)}
+                  </strong>{' '}
+                  more for free shipping
                 </span>
-              ) : (
-                <span className="text-[#0F766E] font-semibold flex items-center gap-1.5 min-w-0">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>You&apos;ve unlocked free shipping!</span>
-                </span>
-              )}
-              <span className="text-[#78716C] tabular-nums shrink-0">{progressPct}%</span>
-            </div>
-            <div className="w-full h-2 rounded-full bg-[#E7E5E4] overflow-hidden">
-              <div
-                className={`h-full transition-all duration-300 rounded-full ${
-                  remainingForFreeShipping === 0 ? 'bg-[#0F766E]' : 'bg-[#C2410C]'
-                }`}
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
+              </span>
+            ) : (
+              <span className="text-[#0F766E] font-semibold flex items-center gap-1.5 min-w-0">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>You&apos;ve unlocked free shipping!</span>
+              </span>
+            )}
+            <span className="text-[#78716C] tabular-nums shrink-0">{progressPct}%</span>
           </div>
-        )}
+          <div className="w-full h-2 rounded-full bg-[#E7E5E4] overflow-hidden">
+            <div
+              className={`h-full transition-all duration-300 rounded-full ${
+                remainingForFreeShipping === 0 ? 'bg-[#0F766E]' : 'bg-[#C2410C]'
+              }`}
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
 
         {/* Drawer Body */}
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
-          {step === 'success' && orderResult ? (() => {
-            const checkoutTargetUrl = sanitizeSafeCheckoutUrl(
-              orderResult.payment_url ||
-                orderResult.paymentUrl ||
-                orderResult.checkoutUrl ||
-                orderResult.redirectUrl
-            );
-            const awaitingOnlinePayment =
-              orderResult.mode === 'wc-v3-orders' ||
-              orderResult.status === 'pending' ||
-              paymentMethod === 'woocommerce_payments';
-
-            return (
-              <div className="text-center py-8 space-y-4">
-                <div className="w-14 h-14 rounded-2xl bg-[#0F766E]/10 text-[#0F766E] flex items-center justify-center mx-auto">
-                  {redirecting ? (
-                    <Loader2 className="w-7 h-7 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="w-7 h-7" />
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F5F5F4] border border-[#E7E5E4] text-[11px] font-semibold text-[#57534E]">
-                    <span>
-                      {redirecting
-                        ? 'Redirecting to WooCommerce'
-                        : awaitingOnlinePayment
-                          ? 'Awaiting Online Payment'
-                          : 'Order Registered'}
-                    </span>
-                    <span>·</span>
-                    <span className="uppercase text-[#1C1917]">{orderResult.status || 'pending'}</span>
-                  </div>
-                  <h3 className="font-display text-xl font-bold text-[#1C1917]">
-                    Order #{orderResult.orderNumber || orderResult.orderId}
-                  </h3>
-                  {orderResult.total && (
-                    <p className="text-sm font-semibold text-[#1C1917] tabular-nums">
-                      Total: {orderResult.total} {orderResult.currency || ''}
-                    </p>
-                  )}
-                  <p className="text-sm text-[#57534E] max-w-xs mx-auto">
-                    {checkoutTargetUrl
-                      ? 'Redirecting you to WooCommerce to complete your order. If the redirect does not start automatically, click the button below.'
-                      : 'Your order has been registered directly via the WooCommerce API.'}
-                  </p>
-                </div>
-
-                {checkoutTargetUrl && (
-                  <a
-                    href={checkoutTargetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`w-full min-h-[48px] inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-white text-sm font-bold transition-colors ${
-                      awaitingOnlinePayment
-                        ? 'bg-[#C2410C] hover:bg-[#9A3412]'
-                        : 'bg-[#0F766E] hover:bg-[#115E59]'
-                    }`}
-                  >
-                    <span>
-                      {awaitingOnlinePayment
-                        ? 'Complete Payment on WooCommerce'
-                        : 'View Order on WooCommerce'}
-                    </span>
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
+          {items.length === 0 ? (
+            <div className="text-center py-12 space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-[#FAFAF9] border border-[#E7E5E4] flex items-center justify-center mx-auto text-[#78716C]">
+                {redirecting ? (
+                  <Loader2 className="w-6 h-6 animate-spin text-[#0F766E]" />
+                ) : (
+                  <ShoppingBag className="w-6 h-6" />
                 )}
-
+              </div>
+              <h3 className="font-display text-base font-bold text-[#1C1917]">
+                {redirecting ? 'Redirecting to WooCommerce...' : 'Your cart is empty'}
+              </h3>
+              <p className="text-sm text-[#57534E] max-w-xs mx-auto">
+                {redirecting
+                  ? 'Taking you directly to the WooCommerce payment page.'
+                  : 'Explore curated gear for dogs, cats, and small pets to get started.'}
+              </p>
+              {!redirecting && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setStep('cart');
-                    setOrderResult(null);
-                    setRedirecting(false);
-                    onClose();
-                  }}
-                  className="w-full min-h-[44px] px-5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm font-semibold text-[#1C1917] hover:bg-[#FAFAF9] transition-colors"
+                  onClick={onClose}
+                  className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors"
                 >
                   Continue Shopping
                 </button>
-              </div>
-            );
-          })() : items.length === 0 ? (
-            <div className="text-center py-12 space-y-3">
-              <div className="w-14 h-14 rounded-2xl bg-[#FAFAF9] border border-[#E7E5E4] flex items-center justify-center mx-auto text-[#78716C]">
-                <ShoppingBag className="w-6 h-6" />
-              </div>
-              <h3 className="font-display text-base font-bold text-[#1C1917]">
-                Your cart is empty
-              </h3>
-              <p className="text-sm text-[#57534E] max-w-xs mx-auto">
-                Explore curated gear for dogs, cats, and small pets to get started.
-              </p>
-              <button
-                type="button"
-                onClick={onClose}
-                className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9A3412] text-white text-sm font-semibold transition-colors"
-              >
-                Continue Shopping
-              </button>
+              )}
             </div>
           ) : step === 'checkout' ? (
             <form id="api-checkout-form" onSubmit={handleCheckoutSubmit} className="space-y-4">
               {checkoutError && (
-                <div className="rounded-xl border border-[#DC2626]/30 bg-[#DC2626]/5 p-3.5 text-xs text-[#991B1B] flex items-start gap-2">
+                <div
+                  ref={errorBannerRef}
+                  role="alert"
+                  className="rounded-xl border border-[#DC2626]/30 bg-[#DC2626]/5 p-3.5 text-xs text-[#991B1B] flex items-start gap-2"
+                >
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{checkoutError}</span>
                 </div>
@@ -591,7 +518,7 @@ export function CartDrawer({
         </div>
 
         {/* Drawer Footer Totals */}
-        {items.length > 0 && step !== 'success' && (
+        {items.length > 0 && (
           <div className="p-4 sm:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] border-t border-[#E7E5E4] bg-[#FAFAF9] space-y-3.5 shrink-0">
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between text-[#57534E]">
@@ -632,13 +559,17 @@ export function CartDrawer({
               <button
                 type="submit"
                 form="api-checkout-form"
-                disabled={submitting || syncingCart}
+                disabled={submitting || redirecting || syncingCart}
                 className="w-full min-h-[48px] inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] disabled:opacity-60 text-white text-sm font-bold shadow-sm transition-colors"
               >
-                {submitting ? (
+                {submitting || redirecting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Creating WooCommerce Order...</span>
+                    <span>
+                      {redirecting
+                        ? 'Redirecting to WooCommerce...'
+                        : 'Creating WooCommerce Order...'}
+                    </span>
                   </>
                 ) : (
                   <>
