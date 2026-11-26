@@ -296,7 +296,8 @@ async function startServer(): Promise<void> {
   app.use('/api', (req: Request, res: Response, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Cart-Token, Nonce');
+    res.setHeader('Access-Control-Expose-Headers', 'Cart-Token, Nonce');
     res.setHeader('Access-Control-Max-Age', '86400');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (req.method === 'OPTIONS') {
@@ -428,6 +429,583 @@ async function startServer(): Promise<void> {
     }
   );
 
+  const sanitizeHeaderToken = (raw: unknown, maxLen = 2048): string => {
+    if (typeof raw !== 'string') return '';
+    return raw.replace(/[\r\n]/g, '').trim().slice(0, maxLen);
+  };
+
+  const sanitizeCartItemKey = (raw: unknown): string => {
+    if (typeof raw !== 'string') return '';
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.length > 128) return '';
+    return /^[a-zA-Z0-9_-]+$/.test(trimmed) ? trimmed : '';
+  };
+
+  interface ServerStoreCartData {
+    items?: Array<{ key?: string; id?: number; quantity?: number }>;
+    [key: string]: unknown;
+  }
+
+  const fetchServerStoreCartSession = async (
+    storeOrigin: string,
+    incomingToken: string,
+    signal: AbortSignal
+  ): Promise<{
+    status: number;
+    cartToken: string;
+    nonce: string;
+    cart: ServerStoreCartData | null;
+    retryAfterSeconds?: number;
+    error?: string;
+  }> => {
+    const response = await fetch(`${storeOrigin}/wp-json/wc/store/v1/cart`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+        ...(incomingToken ? { 'Cart-Token': incomingToken } : {}),
+      },
+      signal,
+    });
+
+    if (response.status === 429) {
+      const retrySec = parseRetryAfterSeconds(response.headers.get('retry-after'));
+      server429CooldownUntil = Date.now() + retrySec * 1000;
+      return {
+        status: 429,
+        cartToken: incomingToken,
+        nonce: '',
+        cart: null,
+        retryAfterSeconds: retrySec,
+        error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
+      };
+    }
+
+    const cartToken =
+      sanitizeHeaderToken(response.headers.get('cart-token')) || incomingToken;
+    const nonce = sanitizeHeaderToken(response.headers.get('nonce'), 128);
+    const cart = (await response.json().catch(() => null)) as ServerStoreCartData | null;
+
+    if (!response.ok) {
+      return {
+        status: response.status,
+        cartToken,
+        nonce,
+        cart: null,
+        error:
+          cart && typeof cart.message === 'string'
+            ? cart.message
+            : `Unable to read WooCommerce cart (HTTP ${response.status}).`,
+      };
+    }
+
+    return { status: 200, cartToken, nonce, cart };
+  };
+
+  const callServerStoreCartMutation = async (
+    storeOrigin: string,
+    endpoint: 'cart/add-item' | 'cart/update-item' | 'cart/remove-item',
+    payload: Record<string, unknown>,
+    initialToken: string,
+    initialNonce: string,
+    signal: AbortSignal
+  ): Promise<{
+    status: number;
+    cartToken: string;
+    nonce: string;
+    cart: ServerStoreCartData | null;
+    retryAfterSeconds?: number;
+    error?: string;
+  }> => {
+    let cartToken = initialToken;
+    let nonce = initialNonce;
+
+    if (!nonce || !cartToken) {
+      const session = await fetchServerStoreCartSession(storeOrigin, cartToken, signal);
+      if (session.status !== 200) return session;
+      cartToken = session.cartToken;
+      nonce = session.nonce;
+    }
+
+    const exec = (tok: string, n: string) =>
+      fetch(`${storeOrigin}/wp-json/wc/store/v1/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+          ...(n ? { Nonce: n } : {}),
+          ...(tok ? { 'Cart-Token': tok } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal,
+      });
+
+    let response = await exec(cartToken, nonce);
+
+    if (response.status === 401 || response.status === 403) {
+      const refreshed = await fetchServerStoreCartSession(storeOrigin, cartToken, signal);
+      if (refreshed.status !== 200) return refreshed;
+      cartToken = refreshed.cartToken;
+      nonce = refreshed.nonce;
+      response = await exec(cartToken, nonce);
+    }
+
+    if (response.status === 429) {
+      const retrySec = parseRetryAfterSeconds(response.headers.get('retry-after'));
+      server429CooldownUntil = Date.now() + retrySec * 1000;
+      return {
+        status: 429,
+        cartToken,
+        nonce,
+        cart: null,
+        retryAfterSeconds: retrySec,
+        error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
+      };
+    }
+
+    const nextToken =
+      sanitizeHeaderToken(response.headers.get('cart-token')) || cartToken;
+    const nextNonce =
+      sanitizeHeaderToken(response.headers.get('nonce'), 128) || nonce;
+    const json = (await response.json().catch(() => null)) as ServerStoreCartData | null;
+
+    if (!response.ok) {
+      return {
+        status: response.status,
+        cartToken: nextToken,
+        nonce: nextNonce,
+        cart: null,
+        error:
+          json && typeof json.message === 'string'
+            ? json.message
+            : `WooCommerce cart error (HTTP ${response.status}).`,
+      };
+    }
+
+    return { status: 200, cartToken: nextToken, nonce: nextNonce, cart: json };
+  };
+
+  app.get('/api/woocommerce/cart', async (req: Request, res: Response) => {
+    let storeOrigin: string;
+    try {
+      storeOrigin = resolveStoreBaseUrl();
+    } catch {
+      res.status(500).json({ error: 'Invalid WP_STORE_URL configuration' });
+      return;
+    }
+
+    if (Date.now() < server429CooldownUntil) {
+      const remainingSec = Math.max(
+        1,
+        Math.ceil((server429CooldownUntil - Date.now()) / 1000)
+      );
+      res.setHeader('Retry-After', String(remainingSec));
+      res.status(429).json({
+        error: `WooCommerce cart is cooling down after rate limit. Try again in ${remainingSec}s.`,
+        retryAfterSeconds: remainingSec,
+      });
+      return;
+    }
+
+    const incomingToken = sanitizeHeaderToken(req.header('cart-token'));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
+
+    try {
+      const session = await fetchServerStoreCartSession(
+        storeOrigin,
+        incomingToken,
+        controller.signal
+      );
+      if (session.status === 429) {
+        res.setHeader('Retry-After', String(session.retryAfterSeconds || 60));
+        res.status(429).json({
+          error: session.error,
+          retryAfterSeconds: session.retryAfterSeconds,
+        });
+        return;
+      }
+      if (session.status !== 200) {
+        res.status(session.status).json({ error: session.error || 'Unable to sync cart.' });
+        return;
+      }
+      if (session.cartToken) res.setHeader('Cart-Token', session.cartToken);
+      if (session.nonce) res.setHeader('Nonce', session.nonce);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        cartToken: session.cartToken,
+        nonce: session.nonce,
+        cart: session.cart,
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      res.status(isTimeout ? 504 : 502).json({
+        error: isTimeout
+          ? 'WooCommerce cart request timed out.'
+          : 'Unable to reach WooCommerce cart API.',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  app.post('/api/woocommerce/cart/add', async (req: Request, res: Response) => {
+    let storeOrigin: string;
+    try {
+      storeOrigin = resolveStoreBaseUrl();
+    } catch {
+      res.status(500).json({ error: 'Invalid WP_STORE_URL configuration' });
+      return;
+    }
+
+    if (Date.now() < server429CooldownUntil) {
+      const remainingSec = Math.max(
+        1,
+        Math.ceil((server429CooldownUntil - Date.now()) / 1000)
+      );
+      res.setHeader('Retry-After', String(remainingSec));
+      res.status(429).json({
+        error: `WooCommerce cart is cooling down after rate limit. Try again in ${remainingSec}s.`,
+        retryAfterSeconds: remainingSec,
+      });
+      return;
+    }
+
+    const body = (req.body || {}) as {
+      id?: number;
+      product_id?: number;
+      variation_id?: number;
+      quantity?: number;
+    };
+    const baseId = Number.parseInt(String(body.id ?? body.product_id ?? ''), 10);
+    const variationIdRaw = Number.parseInt(String(body.variation_id ?? ''), 10);
+    const variationId =
+      Number.isFinite(variationIdRaw) && variationIdRaw > 0 && variationIdRaw !== baseId
+        ? variationIdRaw
+        : undefined;
+    const storeItemId = variationId ?? baseId;
+    const quantity = Math.min(Math.max(1, Number.parseInt(String(body.quantity ?? 1), 10) || 1), 99);
+
+    if (!Number.isFinite(storeItemId) || storeItemId <= 0) {
+      res.status(400).json({ error: 'Invalid product ID.' });
+      return;
+    }
+
+    const incomingToken = sanitizeHeaderToken(req.header('cart-token'));
+    const incomingNonce = sanitizeHeaderToken(req.header('nonce'), 128);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
+
+    try {
+      const result = await callServerStoreCartMutation(
+        storeOrigin,
+        'cart/add-item',
+        { id: storeItemId, quantity },
+        incomingToken,
+        incomingNonce,
+        controller.signal
+      );
+
+      if (result.status === 429) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds || 60));
+        res.status(429).json({
+          error: result.error,
+          retryAfterSeconds: result.retryAfterSeconds,
+        });
+        return;
+      }
+      if (result.status !== 200) {
+        res.status(result.status).json({ error: result.error || 'Unable to add item to cart.' });
+        return;
+      }
+      if (result.cartToken) res.setHeader('Cart-Token', result.cartToken);
+      if (result.nonce) res.setHeader('Nonce', result.nonce);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        cartToken: result.cartToken,
+        nonce: result.nonce,
+        cart: result.cart,
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      res.status(isTimeout ? 504 : 502).json({
+        error: isTimeout
+          ? 'WooCommerce cart add request timed out.'
+          : 'Unable to add item to WooCommerce cart.',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  app.post('/api/woocommerce/cart/update', async (req: Request, res: Response) => {
+    let storeOrigin: string;
+    try {
+      storeOrigin = resolveStoreBaseUrl();
+    } catch {
+      res.status(500).json({ error: 'Invalid WP_STORE_URL configuration' });
+      return;
+    }
+
+    if (Date.now() < server429CooldownUntil) {
+      const remainingSec = Math.max(
+        1,
+        Math.ceil((server429CooldownUntil - Date.now()) / 1000)
+      );
+      res.setHeader('Retry-After', String(remainingSec));
+      res.status(429).json({
+        error: `WooCommerce cart is cooling down after rate limit. Try again in ${remainingSec}s.`,
+        retryAfterSeconds: remainingSec,
+      });
+      return;
+    }
+
+    const body = (req.body || {}) as {
+      key?: string;
+      id?: number;
+      product_id?: number;
+      variation_id?: number;
+      quantity?: number;
+    };
+    let itemKey = sanitizeCartItemKey(body.key);
+    const baseId = Number.parseInt(String(body.id ?? body.product_id ?? ''), 10);
+    const variationIdRaw = Number.parseInt(String(body.variation_id ?? ''), 10);
+    const storeItemId =
+      Number.isFinite(variationIdRaw) && variationIdRaw > 0 && variationIdRaw !== baseId
+        ? variationIdRaw
+        : baseId;
+    const parsedQty = Number.parseInt(String(body.quantity ?? 1), 10);
+    const quantity = Number.isFinite(parsedQty) ? Math.min(Math.max(0, parsedQty), 99) : 1;
+
+    let cartToken = sanitizeHeaderToken(req.header('cart-token'));
+    let nonce = sanitizeHeaderToken(req.header('nonce'), 128);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
+
+    try {
+      if (!itemKey && Number.isFinite(storeItemId) && storeItemId > 0) {
+        const session = await fetchServerStoreCartSession(
+          storeOrigin,
+          cartToken,
+          controller.signal
+        );
+        if (session.status !== 200) {
+          if (session.retryAfterSeconds) {
+            res.setHeader('Retry-After', String(session.retryAfterSeconds));
+          }
+          res.status(session.status).json({
+            error: session.error,
+            retryAfterSeconds: session.retryAfterSeconds,
+          });
+          return;
+        }
+        cartToken = session.cartToken;
+        nonce = session.nonce;
+        const found = session.cart?.items?.find((i) => i.id === storeItemId);
+        if (found?.key) {
+          itemKey = sanitizeCartItemKey(found.key);
+        } else if (quantity > 0) {
+          const added = await callServerStoreCartMutation(
+            storeOrigin,
+            'cart/add-item',
+            { id: storeItemId, quantity },
+            cartToken,
+            nonce,
+            controller.signal
+          );
+          if (added.status !== 200) {
+            res.status(added.status).json({ error: added.error });
+            return;
+          }
+          if (added.cartToken) res.setHeader('Cart-Token', added.cartToken);
+          if (added.nonce) res.setHeader('Nonce', added.nonce);
+          res.setHeader('Cache-Control', 'no-store');
+          res.json({
+            ok: true,
+            cartToken: added.cartToken,
+            nonce: added.nonce,
+            cart: added.cart,
+          });
+          return;
+        } else {
+          if (cartToken) res.setHeader('Cart-Token', cartToken);
+          if (nonce) res.setHeader('Nonce', nonce);
+          res.setHeader('Cache-Control', 'no-store');
+          res.json({ ok: true, cartToken, nonce, cart: session.cart });
+          return;
+        }
+      }
+
+      if (!itemKey) {
+        res.status(400).json({ error: 'Missing cart item key or product ID.' });
+        return;
+      }
+
+      const endpoint = quantity <= 0 ? 'cart/remove-item' : 'cart/update-item';
+      const payload = quantity <= 0 ? { key: itemKey } : { key: itemKey, quantity };
+      const result = await callServerStoreCartMutation(
+        storeOrigin,
+        endpoint,
+        payload,
+        cartToken,
+        nonce,
+        controller.signal
+      );
+
+      if (result.status === 429) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds || 60));
+        res.status(429).json({
+          error: result.error,
+          retryAfterSeconds: result.retryAfterSeconds,
+        });
+        return;
+      }
+      if (result.status !== 200) {
+        res.status(result.status).json({ error: result.error || 'Unable to update cart item.' });
+        return;
+      }
+      if (result.cartToken) res.setHeader('Cart-Token', result.cartToken);
+      if (result.nonce) res.setHeader('Nonce', result.nonce);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        cartToken: result.cartToken,
+        nonce: result.nonce,
+        cart: result.cart,
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      res.status(isTimeout ? 504 : 502).json({
+        error: isTimeout
+          ? 'WooCommerce cart update timed out.'
+          : 'Unable to update WooCommerce cart.',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  app.post('/api/woocommerce/cart/remove', async (req: Request, res: Response) => {
+    let storeOrigin: string;
+    try {
+      storeOrigin = resolveStoreBaseUrl();
+    } catch {
+      res.status(500).json({ error: 'Invalid WP_STORE_URL configuration' });
+      return;
+    }
+
+    if (Date.now() < server429CooldownUntil) {
+      const remainingSec = Math.max(
+        1,
+        Math.ceil((server429CooldownUntil - Date.now()) / 1000)
+      );
+      res.setHeader('Retry-After', String(remainingSec));
+      res.status(429).json({
+        error: `WooCommerce cart is cooling down after rate limit. Try again in ${remainingSec}s.`,
+        retryAfterSeconds: remainingSec,
+      });
+      return;
+    }
+
+    const body = (req.body || {}) as {
+      key?: string;
+      id?: number;
+      product_id?: number;
+      variation_id?: number;
+    };
+    let itemKey = sanitizeCartItemKey(body.key);
+    const baseId = Number.parseInt(String(body.id ?? body.product_id ?? ''), 10);
+    const variationIdRaw = Number.parseInt(String(body.variation_id ?? ''), 10);
+    const storeItemId =
+      Number.isFinite(variationIdRaw) && variationIdRaw > 0 && variationIdRaw !== baseId
+        ? variationIdRaw
+        : baseId;
+
+    let cartToken = sanitizeHeaderToken(req.header('cart-token'));
+    let nonce = sanitizeHeaderToken(req.header('nonce'), 128);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
+
+    try {
+      if (!itemKey && Number.isFinite(storeItemId) && storeItemId > 0) {
+        const session = await fetchServerStoreCartSession(
+          storeOrigin,
+          cartToken,
+          controller.signal
+        );
+        if (session.status !== 200) {
+          if (session.retryAfterSeconds) {
+            res.setHeader('Retry-After', String(session.retryAfterSeconds));
+          }
+          res.status(session.status).json({
+            error: session.error,
+            retryAfterSeconds: session.retryAfterSeconds,
+          });
+          return;
+        }
+        cartToken = session.cartToken;
+        nonce = session.nonce;
+        const found = session.cart?.items?.find((i) => i.id === storeItemId);
+        if (!found?.key) {
+          if (cartToken) res.setHeader('Cart-Token', cartToken);
+          if (nonce) res.setHeader('Nonce', nonce);
+          res.setHeader('Cache-Control', 'no-store');
+          res.json({ ok: true, cartToken, nonce, cart: session.cart });
+          return;
+        }
+        itemKey = sanitizeCartItemKey(found.key);
+      }
+
+      if (!itemKey) {
+        res.status(400).json({ error: 'Missing cart item key or product ID.' });
+        return;
+      }
+
+      const result = await callServerStoreCartMutation(
+        storeOrigin,
+        'cart/remove-item',
+        { key: itemKey },
+        cartToken,
+        nonce,
+        controller.signal
+      );
+
+      if (result.status === 429) {
+        res.setHeader('Retry-After', String(result.retryAfterSeconds || 60));
+        res.status(429).json({
+          error: result.error,
+          retryAfterSeconds: result.retryAfterSeconds,
+        });
+        return;
+      }
+      if (result.status !== 200) {
+        res.status(result.status).json({ error: result.error || 'Unable to remove cart item.' });
+        return;
+      }
+      if (result.cartToken) res.setHeader('Cart-Token', result.cartToken);
+      if (result.nonce) res.setHeader('Nonce', result.nonce);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        cartToken: result.cartToken,
+        nonce: result.nonce,
+        cart: result.cart,
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      res.status(isTimeout ? 504 : 502).json({
+        error: isTimeout
+          ? 'WooCommerce cart remove timed out.'
+          : 'Unable to remove item from WooCommerce cart.',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
   app.post('/api/woocommerce/checkout', async (req: Request, res: Response) => {
     let storeOrigin: string;
     try {
@@ -520,6 +1098,7 @@ async function startServer(): Promise<void> {
       try {
         const parsed = new URL(rawUrl.trim(), storeOrigin);
         if (parsed.protocol !== 'https:') return null;
+        if (isPrivateOrBlockedHost(parsed.hostname)) return null;
         return parsed.toString();
       } catch {
         return null;
@@ -606,6 +1185,7 @@ async function startServer(): Promise<void> {
           status: String(orderJson.status || 'pending'),
           total: typeof orderJson.total === 'string' ? orderJson.total : undefined,
           currency: typeof orderJson.currency === 'string' ? orderJson.currency : undefined,
+          payment_url: safePaymentUrl,
           paymentUrl: safePaymentUrl,
           checkoutUrl: safePaymentUrl,
           redirectUrl: safePaymentUrl,
@@ -613,74 +1193,80 @@ async function startServer(): Promise<void> {
         return;
       }
 
-      const cartInitRes = await fetch(`${storeOrigin}/wp-json/wc/store/v1/cart`, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
-        },
-        signal: controller.signal,
-      });
+      const incomingToken = sanitizeHeaderToken(req.header('cart-token'));
+      const session = await fetchServerStoreCartSession(
+        storeOrigin,
+        incomingToken,
+        controller.signal
+      );
 
-      if (cartInitRes.status === 429) {
-        const retrySec = parseRetryAfterSeconds(cartInitRes.headers.get('retry-after'));
-        server429CooldownUntil = Date.now() + retrySec * 1000;
-        res.setHeader('Retry-After', String(retrySec));
+      if (session.status === 429) {
+        res.setHeader('Retry-After', String(session.retryAfterSeconds || 60));
         res.status(429).json({
-          error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
-          retryAfterSeconds: retrySec,
+          error: session.error,
+          retryAfterSeconds: session.retryAfterSeconds,
         });
         return;
       }
 
-      let cartToken = cartInitRes.headers.get('cart-token') || '';
-      let nonce = cartInitRes.headers.get('nonce') || '';
+      let cartToken = session.cartToken;
+      let nonce = session.nonce;
 
-      if (!cartInitRes.ok || !nonce) {
+      if (session.status !== 200 || !nonce) {
         res.status(502).json({
-          error: 'Unable to initialize WooCommerce checkout session.',
+          error: session.error || 'Unable to initialize WooCommerce checkout session.',
         });
         return;
+      }
+
+      const existingItemsMap = new Map<number, { key: string; quantity: number }>();
+      for (const ci of session.cart?.items || []) {
+        if (ci.id && ci.key) {
+          existingItemsMap.set(ci.id, { key: ci.key, quantity: ci.quantity || 1 });
+        }
       }
 
       for (const item of items) {
-        const addRes = await fetch(`${storeOrigin}/wp-json/wc/store/v1/cart/add-item`, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
-            Nonce: nonce,
-            ...(cartToken ? { 'Cart-Token': cartToken } : {}),
-          },
-          body: JSON.stringify({ id: item.storeItemId, quantity: item.quantity }),
-          signal: controller.signal,
-        });
+        const existing = existingItemsMap.get(item.storeItemId);
+        if (existing && existing.quantity === item.quantity) {
+          continue;
+        }
 
-        const refreshedNonce = addRes.headers.get('nonce');
-        const refreshedToken = addRes.headers.get('cart-token');
-        if (refreshedNonce) nonce = refreshedNonce;
-        if (refreshedToken) cartToken = refreshedToken;
+        const mutation = existing
+          ? await callServerStoreCartMutation(
+              storeOrigin,
+              'cart/update-item',
+              { key: existing.key, quantity: item.quantity },
+              cartToken,
+              nonce,
+              controller.signal
+            )
+          : await callServerStoreCartMutation(
+              storeOrigin,
+              'cart/add-item',
+              { id: item.storeItemId, quantity: item.quantity },
+              cartToken,
+              nonce,
+              controller.signal
+            );
 
-        if (addRes.status === 429) {
-          const retrySec = parseRetryAfterSeconds(addRes.headers.get('retry-after'));
-          server429CooldownUntil = Date.now() + retrySec * 1000;
-          res.setHeader('Retry-After', String(retrySec));
+        cartToken = mutation.cartToken || cartToken;
+        nonce = mutation.nonce || nonce;
+
+        if (mutation.status === 429) {
+          res.setHeader('Retry-After', String(mutation.retryAfterSeconds || 60));
           res.status(429).json({
-            error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
-            retryAfterSeconds: retrySec,
+            error: mutation.error,
+            retryAfterSeconds: mutation.retryAfterSeconds,
           });
           return;
         }
 
-        if (!addRes.ok) {
-          const errPayload = (await addRes.json().catch(() => ({}))) as {
-            message?: string;
-          };
-          res.status(addRes.status).json({
+        if (mutation.status !== 200) {
+          res.status(mutation.status).json({
             error:
-              errPayload.message ||
-              `Failed to add product #${item.storeItemId} to WooCommerce cart (HTTP ${addRes.status}).`,
+              mutation.error ||
+              `Failed to sync product #${item.storeItemId} in WooCommerce cart (HTTP ${mutation.status}).`,
           });
           return;
         }
@@ -750,14 +1336,18 @@ async function startServer(): Promise<void> {
         checkoutPayload.payment_result?.redirect_url
       );
 
+      if (cartToken) res.setHeader('Cart-Token', cartToken);
+      res.setHeader('Cache-Control', 'no-store');
       res.json({
         ok: true,
         mode: 'wc-store-api',
+        cartToken,
         orderId: checkoutPayload.order_id,
         orderNumber:
           checkoutPayload.order_number || String(checkoutPayload.order_id || ''),
         orderKey: checkoutPayload.order_key,
         status: checkoutPayload.status || 'processing',
+        payment_url: safeRedirectUrl,
         paymentUrl: safeRedirectUrl,
         checkoutUrl: safeRedirectUrl,
         redirectUrl: safeRedirectUrl,

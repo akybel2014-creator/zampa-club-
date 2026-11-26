@@ -8,7 +8,8 @@ const DEFAULT_429_COOLDOWN_MS = 60 * 1000;
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Accept',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept, Cart-Token, Nonce',
+  'Access-Control-Expose-Headers': 'Cart-Token, Nonce',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -110,6 +111,7 @@ function resolveSubPath(requestUrl: URL): string {
 
 function isAllowedGetWooPath(subPath: string): boolean {
   if (subPath === 'health') return true;
+  if (subPath === 'cart') return true;
   if (subPath === 'products') return true;
   if (subPath === 'products/categories') return true;
   if (/^products\/\d+$/.test(subPath)) return true;
@@ -346,6 +348,18 @@ interface CheckoutRequestBody {
   payment_method?: string;
 }
 
+function sanitizeSafeHeaderToken(raw: string | null, maxLen = 2048): string {
+  if (!raw) return '';
+  return raw.replace(/[\r\n]/g, '').trim().slice(0, maxLen);
+}
+
+function sanitizeSafeCartItemKey(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 128) return '';
+  return /^[a-zA-Z0-9_-]+$/.test(trimmed) ? trimmed : '';
+}
+
 function sanitizeSafeStoreRedirectUrl(
   rawUrl: unknown,
   storeOrigin: string
@@ -354,9 +368,558 @@ function sanitizeSafeStoreRedirectUrl(
   try {
     const parsed = new URL(rawUrl.trim(), storeOrigin);
     if (parsed.protocol !== 'https:') return null;
+    if (isPrivateOrBlockedHost(parsed.hostname)) return null;
     return parsed.toString();
   } catch {
     return null;
+  }
+}
+
+interface StoreCartResponseData {
+  items?: Array<{ key?: string; id?: number; quantity?: number }>;
+  [key: string]: unknown;
+}
+
+async function fetchStoreCartSession(
+  storeOrigin: string,
+  incomingToken: string,
+  signal: AbortSignal
+): Promise<{
+  status: number;
+  cartToken: string;
+  nonce: string;
+  cart: StoreCartResponseData | null;
+  retryAfterSeconds?: number;
+  error?: string;
+}> {
+  const res = await fetch(`${storeOrigin}/wp-json/wc/store/v1/cart`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+      ...(incomingToken ? { 'Cart-Token': incomingToken } : {}),
+    },
+    signal,
+  });
+
+  if (res.status === 429) {
+    const retrySec = parseRetryAfterSeconds(res.headers.get('retry-after'));
+    upstream429CooldownUntil = Date.now() + retrySec * 1000;
+    return {
+      status: 429,
+      cartToken: incomingToken,
+      nonce: '',
+      cart: null,
+      retryAfterSeconds: retrySec,
+      error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
+    };
+  }
+
+  const cartToken = sanitizeSafeHeaderToken(res.headers.get('cart-token')) || incomingToken;
+  const nonce = sanitizeSafeHeaderToken(res.headers.get('nonce'), 128);
+  const cart = (await res.json().catch(() => null)) as StoreCartResponseData | null;
+
+  if (!res.ok) {
+    const errMsg =
+      cart && typeof cart.message === 'string'
+        ? cart.message
+        : `Unable to read WooCommerce cart (HTTP ${res.status}).`;
+    return { status: res.status, cartToken, nonce, cart: null, error: errMsg };
+  }
+
+  return { status: 200, cartToken, nonce, cart };
+}
+
+function build429CooldownResponse(contextLabel: string): Response | null {
+  if (Date.now() >= upstream429CooldownUntil) return null;
+  const remainingSec = Math.max(
+    1,
+    Math.ceil((upstream429CooldownUntil - Date.now()) / 1000)
+  );
+  return jsonResponse(
+    {
+      error: `WooCommerce ${contextLabel} is cooling down after rate limit. Try again in ${remainingSec}s.`,
+      retryAfterSeconds: remainingSec,
+    },
+    429,
+    'no-store',
+    { 'Retry-After': String(remainingSec) }
+  );
+}
+
+async function handleApiCartGet(
+  request: Request,
+  storeOrigin: string
+): Promise<Response> {
+  const cooldownRes = build429CooldownResponse('cart');
+  if (cooldownRes) return cooldownRes;
+
+  const incomingToken = sanitizeSafeHeaderToken(request.headers.get('cart-token'));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+
+  try {
+    const session = await fetchStoreCartSession(
+      storeOrigin,
+      incomingToken,
+      controller.signal
+    );
+    if (session.status === 429) {
+      return jsonResponse(
+        { error: session.error, retryAfterSeconds: session.retryAfterSeconds },
+        429,
+        'no-store',
+        { 'Retry-After': String(session.retryAfterSeconds || 60) }
+      );
+    }
+    if (session.status !== 200) {
+      return jsonResponse({ error: session.error || 'Unable to sync cart.' }, session.status);
+    }
+
+    const extraHeaders: Record<string, string> = {};
+    if (session.cartToken) extraHeaders['Cart-Token'] = session.cartToken;
+    if (session.nonce) extraHeaders.Nonce = session.nonce;
+
+    return jsonResponse(
+      {
+        ok: true,
+        cartToken: session.cartToken,
+        nonce: session.nonce,
+        cart: session.cart,
+      },
+      200,
+      'no-store',
+      extraHeaders
+    );
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return jsonResponse(
+      {
+        error: isTimeout
+          ? 'WooCommerce cart request timed out.'
+          : 'Unable to reach WooCommerce cart API.',
+      },
+      isTimeout ? 504 : 502
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callStoreCartMutation(
+  storeOrigin: string,
+  endpoint: 'cart/add-item' | 'cart/update-item' | 'cart/remove-item',
+  payload: Record<string, unknown>,
+  initialToken: string,
+  initialNonce: string,
+  signal: AbortSignal
+): Promise<{
+  status: number;
+  cartToken: string;
+  nonce: string;
+  cart: StoreCartResponseData | null;
+  retryAfterSeconds?: number;
+  error?: string;
+}> {
+  let cartToken = initialToken;
+  let nonce = initialNonce;
+
+  if (!nonce || !cartToken) {
+    const session = await fetchStoreCartSession(storeOrigin, cartToken, signal);
+    if (session.status !== 200) return session;
+    cartToken = session.cartToken;
+    nonce = session.nonce;
+  }
+
+  const execRequest = async (tok: string, n: string) =>
+    fetch(`${storeOrigin}/wp-json/wc/store/v1/${endpoint}`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+        ...(n ? { Nonce: n } : {}),
+        ...(tok ? { 'Cart-Token': tok } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal,
+    });
+
+  let res = await execRequest(cartToken, nonce);
+
+  // If nonce expired/invalid (401/403), refresh once from /cart and retry
+  if (res.status === 401 || res.status === 403) {
+    const refreshed = await fetchStoreCartSession(storeOrigin, cartToken, signal);
+    if (refreshed.status !== 200) return refreshed;
+    cartToken = refreshed.cartToken;
+    nonce = refreshed.nonce;
+    res = await execRequest(cartToken, nonce);
+  }
+
+  if (res.status === 429) {
+    const retrySec = parseRetryAfterSeconds(res.headers.get('retry-after'));
+    upstream429CooldownUntil = Date.now() + retrySec * 1000;
+    return {
+      status: 429,
+      cartToken,
+      nonce,
+      cart: null,
+      retryAfterSeconds: retrySec,
+      error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`,
+    };
+  }
+
+  const nextToken = sanitizeSafeHeaderToken(res.headers.get('cart-token')) || cartToken;
+  const nextNonce = sanitizeSafeHeaderToken(res.headers.get('nonce'), 128) || nonce;
+  const json = (await res.json().catch(() => null)) as StoreCartResponseData | null;
+
+  if (!res.ok) {
+    const errMsg =
+      json && typeof json.message === 'string'
+        ? json.message
+        : `WooCommerce cart error (HTTP ${res.status}).`;
+    return { status: res.status, cartToken: nextToken, nonce: nextNonce, cart: null, error: errMsg };
+  }
+
+  return { status: 200, cartToken: nextToken, nonce: nextNonce, cart: json };
+}
+
+async function handleApiCartAdd(
+  request: Request,
+  storeOrigin: string
+): Promise<Response> {
+  const cooldownRes = build429CooldownResponse('cart');
+  if (cooldownRes) return cooldownRes;
+
+  let body: { id?: number; product_id?: number; variation_id?: number; quantity?: number };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON cart payload.' }, 400);
+  }
+
+  const baseId = Number.parseInt(String(body.id ?? body.product_id ?? ''), 10);
+  const variationIdRaw = Number.parseInt(String(body.variation_id ?? ''), 10);
+  const variationId =
+    Number.isFinite(variationIdRaw) && variationIdRaw > 0 && variationIdRaw !== baseId
+      ? variationIdRaw
+      : undefined;
+  const storeItemId = variationId ?? baseId;
+  const quantity = Math.min(Math.max(1, Number.parseInt(String(body.quantity ?? 1), 10) || 1), 99);
+
+  if (!Number.isFinite(storeItemId) || storeItemId <= 0) {
+    return jsonResponse({ error: 'Invalid product ID.' }, 400);
+  }
+
+  const incomingToken = sanitizeSafeHeaderToken(request.headers.get('cart-token'));
+  const incomingNonce = sanitizeSafeHeaderToken(request.headers.get('nonce'), 128);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+
+  try {
+    const result = await callStoreCartMutation(
+      storeOrigin,
+      'cart/add-item',
+      { id: storeItemId, quantity },
+      incomingToken,
+      incomingNonce,
+      controller.signal
+    );
+
+    if (result.status === 429) {
+      return jsonResponse(
+        { error: result.error, retryAfterSeconds: result.retryAfterSeconds },
+        429,
+        'no-store',
+        { 'Retry-After': String(result.retryAfterSeconds || 60) }
+      );
+    }
+    if (result.status !== 200) {
+      return jsonResponse({ error: result.error || 'Unable to add item to cart.' }, result.status);
+    }
+
+    const extraHeaders: Record<string, string> = {};
+    if (result.cartToken) extraHeaders['Cart-Token'] = result.cartToken;
+    if (result.nonce) extraHeaders.Nonce = result.nonce;
+
+    return jsonResponse(
+      {
+        ok: true,
+        cartToken: result.cartToken,
+        nonce: result.nonce,
+        cart: result.cart,
+      },
+      200,
+      'no-store',
+      extraHeaders
+    );
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return jsonResponse(
+      {
+        error: isTimeout
+          ? 'WooCommerce cart add request timed out.'
+          : 'Unable to add item to WooCommerce cart.',
+      },
+      isTimeout ? 504 : 502
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function handleApiCartUpdate(
+  request: Request,
+  storeOrigin: string
+): Promise<Response> {
+  const cooldownRes = build429CooldownResponse('cart');
+  if (cooldownRes) return cooldownRes;
+
+  let body: {
+    key?: string;
+    id?: number;
+    product_id?: number;
+    variation_id?: number;
+    quantity?: number;
+  };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON cart payload.' }, 400);
+  }
+
+  let itemKey = sanitizeSafeCartItemKey(body.key);
+  const baseId = Number.parseInt(String(body.id ?? body.product_id ?? ''), 10);
+  const variationIdRaw = Number.parseInt(String(body.variation_id ?? ''), 10);
+  const storeItemId =
+    Number.isFinite(variationIdRaw) && variationIdRaw > 0 && variationIdRaw !== baseId
+      ? variationIdRaw
+      : baseId;
+  const parsedQty = Number.parseInt(String(body.quantity ?? 1), 10);
+  const quantity = Number.isFinite(parsedQty) ? Math.min(Math.max(0, parsedQty), 99) : 1;
+
+  const incomingToken = sanitizeSafeHeaderToken(request.headers.get('cart-token'));
+  let cartToken = incomingToken;
+  let nonce = sanitizeSafeHeaderToken(request.headers.get('nonce'), 128);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+
+  try {
+    if (!itemKey && Number.isFinite(storeItemId) && storeItemId > 0) {
+      const session = await fetchStoreCartSession(storeOrigin, cartToken, controller.signal);
+      if (session.status !== 200) {
+        return jsonResponse(
+          { error: session.error, retryAfterSeconds: session.retryAfterSeconds },
+          session.status,
+          'no-store',
+          session.retryAfterSeconds ? { 'Retry-After': String(session.retryAfterSeconds) } : {}
+        );
+      }
+      cartToken = session.cartToken;
+      nonce = session.nonce;
+      const found = session.cart?.items?.find((i) => i.id === storeItemId);
+      if (found?.key) {
+        itemKey = sanitizeSafeCartItemKey(found.key);
+      } else if (quantity > 0) {
+        const added = await callStoreCartMutation(
+          storeOrigin,
+          'cart/add-item',
+          { id: storeItemId, quantity },
+          cartToken,
+          nonce,
+          controller.signal
+        );
+        if (added.status !== 200) {
+          return jsonResponse({ error: added.error }, added.status);
+        }
+        const extraHeaders: Record<string, string> = {};
+        if (added.cartToken) extraHeaders['Cart-Token'] = added.cartToken;
+        if (added.nonce) extraHeaders.Nonce = added.nonce;
+        return jsonResponse(
+          { ok: true, cartToken: added.cartToken, nonce: added.nonce, cart: added.cart },
+          200,
+          'no-store',
+          extraHeaders
+        );
+      } else {
+        const extraHeaders: Record<string, string> = {};
+        if (cartToken) extraHeaders['Cart-Token'] = cartToken;
+        if (nonce) extraHeaders.Nonce = nonce;
+        return jsonResponse(
+          { ok: true, cartToken, nonce, cart: session.cart },
+          200,
+          'no-store',
+          extraHeaders
+        );
+      }
+    }
+
+    if (!itemKey) {
+      return jsonResponse({ error: 'Missing cart item key or product ID.' }, 400);
+    }
+
+    const endpoint = quantity <= 0 ? 'cart/remove-item' : 'cart/update-item';
+    const payload = quantity <= 0 ? { key: itemKey } : { key: itemKey, quantity };
+    const result = await callStoreCartMutation(
+      storeOrigin,
+      endpoint,
+      payload,
+      cartToken,
+      nonce,
+      controller.signal
+    );
+
+    if (result.status === 429) {
+      return jsonResponse(
+        { error: result.error, retryAfterSeconds: result.retryAfterSeconds },
+        429,
+        'no-store',
+        { 'Retry-After': String(result.retryAfterSeconds || 60) }
+      );
+    }
+    if (result.status !== 200) {
+      return jsonResponse({ error: result.error || 'Unable to update cart item.' }, result.status);
+    }
+
+    const extraHeaders: Record<string, string> = {};
+    if (result.cartToken) extraHeaders['Cart-Token'] = result.cartToken;
+    if (result.nonce) extraHeaders.Nonce = result.nonce;
+
+    return jsonResponse(
+      {
+        ok: true,
+        cartToken: result.cartToken,
+        nonce: result.nonce,
+        cart: result.cart,
+      },
+      200,
+      'no-store',
+      extraHeaders
+    );
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return jsonResponse(
+      {
+        error: isTimeout
+          ? 'WooCommerce cart update timed out.'
+          : 'Unable to update WooCommerce cart.',
+      },
+      isTimeout ? 504 : 502
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function handleApiCartRemove(
+  request: Request,
+  storeOrigin: string
+): Promise<Response> {
+  const cooldownRes = build429CooldownResponse('cart');
+  if (cooldownRes) return cooldownRes;
+
+  let body: { key?: string; id?: number; product_id?: number; variation_id?: number };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON cart payload.' }, 400);
+  }
+
+  let itemKey = sanitizeSafeCartItemKey(body.key);
+  const baseId = Number.parseInt(String(body.id ?? body.product_id ?? ''), 10);
+  const variationIdRaw = Number.parseInt(String(body.variation_id ?? ''), 10);
+  const storeItemId =
+    Number.isFinite(variationIdRaw) && variationIdRaw > 0 && variationIdRaw !== baseId
+      ? variationIdRaw
+      : baseId;
+
+  let cartToken = sanitizeSafeHeaderToken(request.headers.get('cart-token'));
+  let nonce = sanitizeSafeHeaderToken(request.headers.get('nonce'), 128);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+
+  try {
+    if (!itemKey && Number.isFinite(storeItemId) && storeItemId > 0) {
+      const session = await fetchStoreCartSession(storeOrigin, cartToken, controller.signal);
+      if (session.status !== 200) {
+        return jsonResponse(
+          { error: session.error, retryAfterSeconds: session.retryAfterSeconds },
+          session.status,
+          'no-store',
+          session.retryAfterSeconds ? { 'Retry-After': String(session.retryAfterSeconds) } : {}
+        );
+      }
+      cartToken = session.cartToken;
+      nonce = session.nonce;
+      const found = session.cart?.items?.find((i) => i.id === storeItemId);
+      if (!found?.key) {
+        const extraHeaders: Record<string, string> = {};
+        if (cartToken) extraHeaders['Cart-Token'] = cartToken;
+        if (nonce) extraHeaders.Nonce = nonce;
+        return jsonResponse(
+          { ok: true, cartToken, nonce, cart: session.cart },
+          200,
+          'no-store',
+          extraHeaders
+        );
+      }
+      itemKey = sanitizeSafeCartItemKey(found.key);
+    }
+
+    if (!itemKey) {
+      return jsonResponse({ error: 'Missing cart item key or product ID.' }, 400);
+    }
+
+    const result = await callStoreCartMutation(
+      storeOrigin,
+      'cart/remove-item',
+      { key: itemKey },
+      cartToken,
+      nonce,
+      controller.signal
+    );
+
+    if (result.status === 429) {
+      return jsonResponse(
+        { error: result.error, retryAfterSeconds: result.retryAfterSeconds },
+        429,
+        'no-store',
+        { 'Retry-After': String(result.retryAfterSeconds || 60) }
+      );
+    }
+    if (result.status !== 200) {
+      return jsonResponse({ error: result.error || 'Unable to remove cart item.' }, result.status);
+    }
+
+    const extraHeaders: Record<string, string> = {};
+    if (result.cartToken) extraHeaders['Cart-Token'] = result.cartToken;
+    if (result.nonce) extraHeaders.Nonce = result.nonce;
+
+    return jsonResponse(
+      {
+        ok: true,
+        cartToken: result.cartToken,
+        nonce: result.nonce,
+        cart: result.cart,
+      },
+      200,
+      'no-store',
+      extraHeaders
+    );
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return jsonResponse(
+      {
+        error: isTimeout
+          ? 'WooCommerce cart remove timed out.'
+          : 'Unable to remove item from WooCommerce cart.',
+      },
+      isTimeout ? 504 : 502
+    );
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -532,85 +1095,87 @@ async function handleApiCheckout(
         status: String(orderJson.status || 'pending'),
         total: typeof orderJson.total === 'string' ? orderJson.total : undefined,
         currency: typeof orderJson.currency === 'string' ? orderJson.currency : undefined,
+        payment_url: safePaymentUrl,
         paymentUrl: safePaymentUrl,
         checkoutUrl: safePaymentUrl,
         redirectUrl: safePaymentUrl,
       });
     }
 
-    // Store API flow: 1) initialize Cart-Token + Nonce, 2) add items via API, 3) submit /checkout API
-    const cartInitRes = await fetch(`${storeOrigin}/wp-json/wc/store/v1/cart`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
-      },
-      signal: controller.signal,
-    });
+    // Store API flow: reuse incoming Cart-Token session if provided, verify/sync items, then submit /checkout
+    const incomingToken = sanitizeSafeHeaderToken(request.headers.get('cart-token'));
+    const session = await fetchStoreCartSession(storeOrigin, incomingToken, controller.signal);
 
-    if (cartInitRes.status === 429) {
-      const retrySec = parseRetryAfterSeconds(cartInitRes.headers.get('retry-after'));
-      upstream429CooldownUntil = Date.now() + retrySec * 1000;
+    if (session.status === 429) {
       return jsonResponse(
-        { error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`, retryAfterSeconds: retrySec },
+        { error: session.error, retryAfterSeconds: session.retryAfterSeconds },
         429,
         'no-store',
-        { 'Retry-After': String(retrySec) }
+        { 'Retry-After': String(session.retryAfterSeconds || 60) }
       );
     }
 
-    let cartToken = cartInitRes.headers.get('cart-token') || '';
-    let nonce = cartInitRes.headers.get('nonce') || '';
+    let cartToken = session.cartToken;
+    let nonce = session.nonce;
 
-    if (!cartInitRes.ok || !nonce) {
+    if (session.status !== 200 || !nonce) {
       return jsonResponse(
-        { error: 'Unable to initialize WooCommerce checkout session.' },
+        { error: session.error || 'Unable to initialize WooCommerce checkout session.' },
         502
       );
     }
 
+    const existingItemsMap = new Map<number, { key: string; quantity: number }>();
+    for (const ci of session.cart?.items || []) {
+      if (ci.id && ci.key) {
+        existingItemsMap.set(ci.id, { key: ci.key, quantity: ci.quantity || 1 });
+      }
+    }
+
     for (const item of items) {
-      const addRes = await fetch(`${storeOrigin}/wp-json/wc/store/v1/cart/add-item`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
-          Nonce: nonce,
-          ...(cartToken ? { 'Cart-Token': cartToken } : {}),
-        },
-        body: JSON.stringify({
-          id: item.storeItemId,
-          quantity: item.quantity,
-        }),
-        signal: controller.signal,
-      });
+      const existing = existingItemsMap.get(item.storeItemId);
+      if (existing && existing.quantity === item.quantity) {
+        continue;
+      }
 
-      const refreshedNonce = addRes.headers.get('nonce');
-      const refreshedToken = addRes.headers.get('cart-token');
-      if (refreshedNonce) nonce = refreshedNonce;
-      if (refreshedToken) cartToken = refreshedToken;
+      const mutation = existing
+        ? await callStoreCartMutation(
+            storeOrigin,
+            'cart/update-item',
+            { key: existing.key, quantity: item.quantity },
+            cartToken,
+            nonce,
+            controller.signal
+          )
+        : await callStoreCartMutation(
+            storeOrigin,
+            'cart/add-item',
+            { id: item.storeItemId, quantity: item.quantity },
+            cartToken,
+            nonce,
+            controller.signal
+          );
 
-      if (addRes.status === 429) {
-        const retrySec = parseRetryAfterSeconds(addRes.headers.get('retry-after'));
-        upstream429CooldownUntil = Date.now() + retrySec * 1000;
+      cartToken = mutation.cartToken || cartToken;
+      nonce = mutation.nonce || nonce;
+
+      if (mutation.status === 429) {
         return jsonResponse(
-          { error: `WooCommerce rate limit (HTTP 429). Retry in ${retrySec}s.`, retryAfterSeconds: retrySec },
+          { error: mutation.error, retryAfterSeconds: mutation.retryAfterSeconds },
           429,
           'no-store',
-          { 'Retry-After': String(retrySec) }
+          { 'Retry-After': String(mutation.retryAfterSeconds || 60) }
         );
       }
 
-      if (!addRes.ok) {
-        const errPayload = (await addRes.json().catch(() => ({}))) as { message?: string };
+      if (mutation.status !== 200) {
         return jsonResponse(
           {
             error:
-              errPayload.message ||
-              `Failed to add product #${item.storeItemId} to WooCommerce cart (HTTP ${addRes.status}).`,
+              mutation.error ||
+              `Failed to sync product #${item.storeItemId} in WooCommerce cart (HTTP ${mutation.status}).`,
           },
-          addRes.status
+          mutation.status
         );
       }
     }
@@ -685,18 +1250,28 @@ async function handleApiCheckout(
       storeOrigin
     );
 
-    return jsonResponse({
-      ok: true,
-      mode: 'wc-store-api',
-      orderId: checkoutPayload.order_id,
-      orderNumber:
-        checkoutPayload.order_number || String(checkoutPayload.order_id || ''),
-      orderKey: checkoutPayload.order_key,
-      status: checkoutPayload.status || 'processing',
-      paymentUrl: safeRedirectUrl,
-      checkoutUrl: safeRedirectUrl,
-      redirectUrl: safeRedirectUrl,
-    });
+    const extraHeaders: Record<string, string> = {};
+    if (cartToken) extraHeaders['Cart-Token'] = cartToken;
+
+    return jsonResponse(
+      {
+        ok: true,
+        mode: 'wc-store-api',
+        cartToken,
+        orderId: checkoutPayload.order_id,
+        orderNumber:
+          checkoutPayload.order_number || String(checkoutPayload.order_id || ''),
+        orderKey: checkoutPayload.order_key,
+        status: checkoutPayload.status || 'processing',
+        payment_url: safeRedirectUrl,
+        paymentUrl: safeRedirectUrl,
+        checkoutUrl: safeRedirectUrl,
+        redirectUrl: safeRedirectUrl,
+      },
+      200,
+      'no-store',
+      extraHeaders
+    );
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === 'AbortError';
     return jsonResponse(
@@ -745,6 +1320,15 @@ export async function handleWooCommerceRequest(
     }
 
     if (request.method === 'POST') {
+      if (subPath === 'cart/add') {
+        return handleApiCartAdd(request, storeOrigin);
+      }
+      if (subPath === 'cart/update') {
+        return handleApiCartUpdate(request, storeOrigin);
+      }
+      if (subPath === 'cart/remove') {
+        return handleApiCartRemove(request, storeOrigin);
+      }
       if (subPath === 'checkout') {
         return handleApiCheckout(request, env, storeOrigin);
       }
@@ -766,6 +1350,10 @@ export async function handleWooCommerceRequest(
         { error: `Unsupported WooCommerce proxy path: /${subPath}` },
         404
       );
+    }
+
+    if (subPath === 'cart') {
+      return handleApiCartGet(request, storeOrigin);
     }
 
     const consumerKey = (env.WC_CONSUMER_KEY || '').trim();

@@ -51,6 +51,7 @@ export interface Product {
 
 export interface CartItem {
   cartKey: string;
+  wooCartKey?: string;
   product: Product;
   variation: ProductVariation;
   quantity: number;

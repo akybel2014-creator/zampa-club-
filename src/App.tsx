@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
 import { QuickCategories } from './components/QuickCategories';
+import { useCart } from './context/CartContext';
 import {
   buildMegaCategoriesFromWoo,
   clearWooCommerceCache,
@@ -13,7 +14,6 @@ import {
   getRateLimitRemainingSeconds,
 } from './services/wooCommerceService';
 import {
-  CartItem,
   MacroCategorySlug,
   Product,
   ProductVariation,
@@ -80,24 +80,18 @@ export default function App() {
   const [cartOpen, setCartOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
 
-  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('zampaclub_cart_v1');
-      return saved ? (JSON.parse(saved) as CartItem[]) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('zampaclub_cart_v1', JSON.stringify(cartItems));
-    } catch {
-      // Ignore storage quota errors in restricted frames
-    }
-  }, [cartItems]);
+  const {
+    cartItems,
+    cartToken,
+    addToCart,
+    updateQuantity,
+    removeItem,
+    clearCart,
+    syncCart,
+  } = useCart();
 
   const lastManualRefreshRef = useRef(0);
+  const didInitialCartSyncRef = useRef(false);
 
   const loadWooCommerceData = useCallback(async (forceRefresh = false) => {
     const cooldownSec = getRateLimitRemainingSeconds();
@@ -197,6 +191,17 @@ export default function App() {
     return () => window.removeEventListener('online', handleOnline);
   }, [sourceMode, categorySourceMode, loadWooCommerceData]);
 
+  useEffect(() => {
+    if (didInitialCartSyncRef.current) return;
+    if (!cartToken) return;
+    if (loadingCatalog) return;
+    didInitialCartSyncRef.current = true;
+    const timerId = window.setTimeout(() => {
+      syncCart(allProducts);
+    }, 300);
+    return () => window.clearTimeout(timerId);
+  }, [cartToken, loadingCatalog, allProducts, syncCart]);
+
   const megaCategories = useMemo(
     () => buildMegaCategoriesFromWoo(wooCategories, allProducts),
     [wooCategories, allProducts]
@@ -246,23 +251,20 @@ export default function App() {
     setSearchQuery('');
   };
 
+  const handleOpenCart = useCallback(() => {
+    setCartOpen(true);
+    if (!didInitialCartSyncRef.current) {
+      didInitialCartSyncRef.current = true;
+      syncCart(allProducts);
+    }
+  }, [allProducts, syncCart]);
+
   const handleAddToCart = (
     product: Product,
     variation: ProductVariation,
     quantity: number
   ) => {
-    const cartKey = `${product.id}-${variation.variation_id}`;
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.cartKey === cartKey);
-      if (existing) {
-        return prev.map((item) =>
-          item.cartKey === cartKey
-            ? { ...item, quantity: item.quantity + quantity }
-            : item
-        );
-      }
-      return [...prev, { cartKey, product, variation, quantity }];
-    });
+    addToCart(product, variation, quantity);
     setCartOpen(true);
   };
 
@@ -271,34 +273,16 @@ export default function App() {
       product.variations.find(
         (v) => v.variation_id === product.default_variation_id
       ) || product.variations[0];
-    const cartKey = `${product.id}-${defaultVar.variation_id}`;
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.cartKey === cartKey);
-      if (existing) {
-        return prev.map((item) =>
-          item.cartKey === cartKey
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        );
-      }
-      return [...prev, { cartKey, product, variation: defaultVar, quantity: 1 }];
-    });
+    if (!defaultVar) return;
+    addToCart(product, defaultVar, 1);
   };
 
   const handleUpdateQty = (cartKey: string, delta: number) => {
-    setCartItems((prev) =>
-      prev
-        .map((item) =>
-          item.cartKey === cartKey
-            ? { ...item, quantity: item.quantity + delta }
-            : item
-        )
-        .filter((item) => item.quantity > 0)
-    );
+    updateQuantity(cartKey, delta);
   };
 
   const handleRemoveItem = (cartKey: string) => {
-    setCartItems((prev) => prev.filter((item) => item.cartKey !== cartKey));
+    removeItem(cartKey);
   };
 
   const filteredProducts = useMemo(() => {
@@ -405,7 +389,7 @@ export default function App() {
         onSearchChange={setSearchQuery}
         onSelectCategory={handleSelectCategory}
         onSelectProduct={setSelectedProduct}
-        onOpenCart={() => setCartOpen(true)}
+        onOpenCart={handleOpenCart}
         onOpenAccount={() => setAccountOpen(true)}
         onResetFilters={handleResetFilters}
       />
@@ -489,7 +473,7 @@ export default function App() {
             onClose={() => setCartOpen(false)}
             onUpdateQty={handleUpdateQty}
             onRemoveItem={handleRemoveItem}
-            onClearCart={() => setCartItems([])}
+            onClearCart={() => clearCart(true)}
           />
         </Suspense>
       )}

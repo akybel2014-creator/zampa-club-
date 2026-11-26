@@ -14,8 +14,9 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { formatUsd, WOOCOMMERCE_CONFIG } from '../config/woocommerce';
+import { useCart } from '../context/CartContext';
 import {
-  submitWooCommerceCheckout,
+  sanitizeSafeCheckoutUrl,
   WooCheckoutBilling,
   WooCheckoutResult,
 } from '../services/wooCommerceService';
@@ -39,8 +40,10 @@ export function CartDrawer({
   onRemoveItem,
   onClearCart,
 }: CartDrawerProps) {
+  const { checkout, syncingCart } = useCart();
   const [step, setStep] = useState<'cart' | 'checkout' | 'success'>('cart');
   const [submitting, setSubmitting] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [orderResult, setOrderResult] = useState<WooCheckoutResult | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'woocommerce_payments'>(
@@ -93,6 +96,7 @@ export function CartDrawer({
     if (isOpen && items.length > 0 && step === 'success') {
       setStep('cart');
       setOrderResult(null);
+      setRedirecting(false);
       setCheckoutError(null);
     }
   }, [isOpen, items.length, step]);
@@ -106,7 +110,7 @@ export function CartDrawer({
     setSubmitting(true);
     setCheckoutError(null);
 
-    const res = await submitWooCommerceCheckout(items, billing, paymentMethod);
+    const res = await checkout(billing, paymentMethod);
     setSubmitting(false);
 
     if (!res.ok) {
@@ -114,9 +118,18 @@ export function CartDrawer({
       return;
     }
 
+    const paymentUrl = sanitizeSafeCheckoutUrl(
+      res.payment_url || res.paymentUrl || res.checkoutUrl || res.redirectUrl
+    );
+
     setOrderResult(res);
     setStep('success');
     onClearCart();
+
+    if (paymentUrl) {
+      setRedirecting(true);
+      window.location.href = paymentUrl;
+    }
   };
 
   return (
@@ -205,8 +218,12 @@ export function CartDrawer({
         {/* Drawer Body */}
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
           {step === 'success' && orderResult ? (() => {
-            const checkoutTargetUrl =
-              orderResult.paymentUrl || orderResult.checkoutUrl || orderResult.redirectUrl;
+            const checkoutTargetUrl = sanitizeSafeCheckoutUrl(
+              orderResult.payment_url ||
+                orderResult.paymentUrl ||
+                orderResult.checkoutUrl ||
+                orderResult.redirectUrl
+            );
             const awaitingOnlinePayment =
               orderResult.mode === 'wc-v3-orders' ||
               orderResult.status === 'pending' ||
@@ -215,12 +232,20 @@ export function CartDrawer({
             return (
               <div className="text-center py-8 space-y-4">
                 <div className="w-14 h-14 rounded-2xl bg-[#0F766E]/10 text-[#0F766E] flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-7 h-7" />
+                  {redirecting ? (
+                    <Loader2 className="w-7 h-7 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-7 h-7" />
+                  )}
                 </div>
                 <div className="space-y-2">
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F5F5F4] border border-[#E7E5E4] text-[11px] font-semibold text-[#57534E]">
                     <span>
-                      {awaitingOnlinePayment ? 'Awaiting Online Payment' : 'Order Registered'}
+                      {redirecting
+                        ? 'Redirecting to WooCommerce'
+                        : awaitingOnlinePayment
+                          ? 'Awaiting Online Payment'
+                          : 'Order Registered'}
                     </span>
                     <span>·</span>
                     <span className="uppercase text-[#1C1917]">{orderResult.status || 'pending'}</span>
@@ -234,8 +259,8 @@ export function CartDrawer({
                     </p>
                   )}
                   <p className="text-sm text-[#57534E] max-w-xs mx-auto">
-                    {awaitingOnlinePayment && checkoutTargetUrl
-                      ? 'Your order has been created on WooCommerce. Continue to our secure WooCommerce checkout page to complete your payment.'
+                    {checkoutTargetUrl
+                      ? 'Redirecting you to WooCommerce to complete your order. If the redirect does not start automatically, click the button below.'
                       : 'Your order has been registered directly via the WooCommerce API.'}
                   </p>
                 </div>
@@ -265,6 +290,7 @@ export function CartDrawer({
                   onClick={() => {
                     setStep('cart');
                     setOrderResult(null);
+                    setRedirecting(false);
                     onClose();
                   }}
                   className="w-full min-h-[44px] px-5 py-2.5 rounded-xl border border-[#E7E5E4] text-sm font-semibold text-[#1C1917] hover:bg-[#FAFAF9] transition-colors"
@@ -606,17 +632,17 @@ export function CartDrawer({
               <button
                 type="submit"
                 form="api-checkout-form"
-                disabled={submitting}
+                disabled={submitting || syncingCart}
                 className="w-full min-h-[48px] inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#C2410C] hover:bg-[#9A3412] disabled:opacity-60 text-white text-sm font-bold shadow-sm transition-colors"
               >
                 {submitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Submitting Order...</span>
+                    <span>Creating WooCommerce Order...</span>
                   </>
                 ) : (
                   <>
-                    <span>Place Order · {formatUsd(total)}</span>
+                    <span>Proceed to Payment · {formatUsd(total)}</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}

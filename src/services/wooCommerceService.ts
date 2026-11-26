@@ -90,6 +90,8 @@ const PRODUCTS_CACHE_KEY = 'zampaclub_wc_products_v1';
 const CATEGORIES_CACHE_KEY = 'zampaclub_wc_categories_v1';
 const VARIATIONS_CACHE_KEY = 'zampaclub_wc_variations_v1';
 const COOLDOWN_STORAGE_KEY = 'zampaclub_wc_cooldown_v1';
+const CART_TOKEN_STORAGE_KEY = 'zampaclub_wc_cart_token_v1';
+const CART_NONCE_STORAGE_KEY = 'zampaclub_wc_cart_nonce_v1';
 
 let memoryProductsCache: { ts: number; data: Product[] } | null = null;
 let memoryCategoriesCache: { ts: number; data: WooCategory[] } | null = null;
@@ -98,6 +100,7 @@ const memoryVariationsCache = new Map<number, { ts: number; data: ProductVariati
 let inFlightProductsPromise: Promise<CatalogFetchResult> | null = null;
 let inFlightCategoriesPromise: Promise<CategoriesFetchResult> | null = null;
 const inFlightVariationPromises = new Map<number, Promise<ProductVariation[] | null>>();
+let inFlightCartSyncPromise: Promise<WooCartSyncResult> | null = null;
 let inFlightCheckoutPromise: Promise<WooCheckoutResult> | null = null;
 
 let rateLimitCooldownUntil = 0;
@@ -1230,6 +1233,233 @@ export async function fetchProductVariations(
   return requestPromise;
 }
 
+export interface WooStoreCartItemPayload {
+  key: string;
+  id: number;
+  quantity: number;
+  name?: string;
+}
+
+export interface WooStoreCartPayload {
+  items?: WooStoreCartItemPayload[];
+  items_count?: number;
+  totals?: {
+    total_price?: string;
+    total_items?: string;
+    currency_code?: string;
+    currency_minor_unit?: number;
+  };
+}
+
+export interface WooCartSyncResult {
+  ok: boolean;
+  cartToken?: string;
+  nonce?: string;
+  cart?: WooStoreCartPayload | null;
+  error?: string;
+}
+
+export function getStoredCartToken(): string {
+  try {
+    return (localStorage.getItem(CART_TOKEN_STORAGE_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+export function getStoredCartNonce(): string {
+  try {
+    return (localStorage.getItem(CART_NONCE_STORAGE_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+export function saveStoredCartSession(cartToken?: string, nonce?: string): void {
+  try {
+    if (cartToken && cartToken.trim()) {
+      localStorage.setItem(CART_TOKEN_STORAGE_KEY, cartToken.trim());
+    }
+    if (nonce && nonce.trim()) {
+      localStorage.setItem(CART_NONCE_STORAGE_KEY, nonce.trim());
+    }
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export function clearStoredCartSession(): void {
+  try {
+    localStorage.removeItem(CART_TOKEN_STORAGE_KEY);
+    localStorage.removeItem(CART_NONCE_STORAGE_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function buildCartSessionHeaders(includeJsonContentType = false): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (includeJsonContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const token = getStoredCartToken();
+  const nonce = getStoredCartNonce();
+  if (token) headers['Cart-Token'] = token;
+  if (nonce) headers.Nonce = nonce;
+  return headers;
+}
+
+function persistCartHeadersFromResponse(
+  response: Response,
+  data?: { cartToken?: string; nonce?: string }
+): { cartToken: string; nonce: string } {
+  const headerToken = response.headers.get('Cart-Token') || response.headers.get('cart-token') || '';
+  const headerNonce = response.headers.get('Nonce') || response.headers.get('nonce') || '';
+  const nextToken = (headerToken || data?.cartToken || getStoredCartToken()).trim();
+  const nextNonce = (headerNonce || data?.nonce || getStoredCartNonce()).trim();
+  saveStoredCartSession(nextToken, nextNonce);
+  return { cartToken: nextToken, nonce: nextNonce };
+}
+
+async function performCartRequest(
+  subPath: string,
+  method: 'GET' | 'POST',
+  bodyPayload?: Record<string, unknown>
+): Promise<WooCartSyncResult> {
+  if (!isWooCommerceConfigured()) {
+    return { ok: false, error: 'WooCommerce proxy endpoint is not configured.' };
+  }
+
+  const remainingCooldown = getRateLimitRemainingSeconds();
+  if (remainingCooldown > 0) {
+    return {
+      ok: false,
+      error: `WooCommerce rate limit cooldown active. Please wait ${remainingCooldown}s.`,
+    };
+  }
+
+  const endpoint = buildProxyEndpoint(subPath);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 16000);
+
+  try {
+    const response = await fetch(endpoint, {
+      method,
+      headers: buildCartSessionHeaders(method === 'POST'),
+      ...(method === 'POST' ? { body: JSON.stringify(bodyPayload || {}) } : {}),
+      signal: controller.signal,
+    });
+
+    if (response.status === 429) {
+      const errBody = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        retryAfterSeconds?: number;
+      };
+      const retrySec = errBody.retryAfterSeconds || 60;
+      setRateLimitCooldown(retrySec);
+      return {
+        ok: false,
+        error:
+          errBody.error ||
+          `Too many requests to WooCommerce (HTTP 429). Wait ${retrySec}s.`,
+      };
+    }
+
+    const data = (await response.json().catch(() => ({}))) as {
+      ok?: boolean;
+      cartToken?: string;
+      nonce?: string;
+      cart?: WooStoreCartPayload | null;
+      error?: string;
+    };
+
+    const { cartToken, nonce } = persistCartHeadersFromResponse(response, data);
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        cartToken,
+        nonce,
+        error: data.error || `WooCommerce cart request failed (HTTP ${response.status}).`,
+      };
+    }
+
+    return {
+      ok: true,
+      cartToken,
+      nonce,
+      cart: data.cart || null,
+    };
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      error: isTimeout
+        ? 'WooCommerce cart request timed out.'
+        : 'Network error communicating with WooCommerce cart API.',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function fetchWooCartSession(): Promise<WooCartSyncResult> {
+  if (inFlightCartSyncPromise) {
+    return inFlightCartSyncPromise;
+  }
+  const run = performCartRequest('/cart', 'GET').finally(() => {
+    inFlightCartSyncPromise = null;
+  });
+  inFlightCartSyncPromise = run;
+  return run;
+}
+
+export async function addWooCartItem(params: {
+  id: number;
+  quantity: number;
+  variation_id?: number;
+}): Promise<WooCartSyncResult> {
+  return performCartRequest('/cart/add', 'POST', {
+    id: params.id,
+    quantity: params.quantity,
+    ...(params.variation_id && params.variation_id !== params.id
+      ? { variation_id: params.variation_id }
+      : {}),
+  });
+}
+
+export async function updateWooCartItem(params: {
+  key?: string;
+  id: number;
+  variation_id?: number;
+  quantity: number;
+}): Promise<WooCartSyncResult> {
+  return performCartRequest('/cart/update', 'POST', {
+    ...(params.key ? { key: params.key } : {}),
+    id: params.id,
+    ...(params.variation_id && params.variation_id !== params.id
+      ? { variation_id: params.variation_id }
+      : {}),
+    quantity: params.quantity,
+  });
+}
+
+export async function removeWooCartItem(params: {
+  key?: string;
+  id: number;
+  variation_id?: number;
+}): Promise<WooCartSyncResult> {
+  return performCartRequest('/cart/remove', 'POST', {
+    ...(params.key ? { key: params.key } : {}),
+    id: params.id,
+    ...(params.variation_id && params.variation_id !== params.id
+      ? { variation_id: params.variation_id }
+      : {}),
+  });
+}
+
 export interface WooCheckoutBilling {
   first_name: string;
   last_name: string;
@@ -1245,23 +1475,34 @@ export interface WooCheckoutBilling {
 export interface WooCheckoutResult {
   ok: boolean;
   mode?: 'wc-v3-orders' | 'wc-store-api';
+  cartToken?: string;
   orderId?: number;
   orderNumber?: string;
   orderKey?: string;
   status?: string;
   total?: string;
   currency?: string;
+  payment_url?: string | null;
   paymentUrl?: string | null;
   checkoutUrl?: string | null;
   redirectUrl?: string | null;
   error?: string;
 }
 
-function sanitizeSafeCheckoutUrl(rawUrl: unknown): string | null {
+export function sanitizeSafeCheckoutUrl(rawUrl: unknown): string | null {
   if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
   try {
     const parsed = new URL(rawUrl.trim());
     if (parsed.protocol !== 'https:') return null;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local') ||
+      /^127\.|^10\.|^192\.168\.|^169\.254\./.test(host)
+    ) {
+      return null;
+    }
     return parsed.toString();
   } catch {
     return null;
@@ -1270,7 +1511,7 @@ function sanitizeSafeCheckoutUrl(rawUrl: unknown): string | null {
 
 /**
  * Submits cart items & customer billing details via a targeted POST /api/woocommerce/checkout call.
- * Eliminates ?add-to-cart=... query-string redirects and prevents duplicate concurrent submissions.
+ * Forwards the active Cart-Token / Nonce session headers and prevents duplicate concurrent submissions.
  */
 export async function submitWooCommerceCheckout(
   items: CartItem[],
@@ -1314,10 +1555,7 @@ export async function submitWooCommerceCheckout(
     try {
       const response = await fetch(checkoutUrl, {
         method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
+        headers: buildCartSessionHeaders(true),
         body: JSON.stringify({
           items: lineItems,
           billing,
@@ -1342,6 +1580,10 @@ export async function submitWooCommerceCheckout(
       }
 
       const data = (await response.json().catch(() => ({}))) as WooCheckoutResult;
+      if (data.cartToken) {
+        saveStoredCartSession(data.cartToken);
+      }
+
       if (!response.ok || !data.ok) {
         return {
           ok: false,
@@ -1350,12 +1592,14 @@ export async function submitWooCommerceCheckout(
       }
 
       const resolvedUrl =
+        sanitizeSafeCheckoutUrl(data.payment_url) ||
         sanitizeSafeCheckoutUrl(data.paymentUrl) ||
         sanitizeSafeCheckoutUrl(data.checkoutUrl) ||
         sanitizeSafeCheckoutUrl(data.redirectUrl);
 
       return {
         ...data,
+        payment_url: resolvedUrl,
         paymentUrl: resolvedUrl,
         checkoutUrl: sanitizeSafeCheckoutUrl(data.checkoutUrl) || resolvedUrl,
         redirectUrl: sanitizeSafeCheckoutUrl(data.redirectUrl) || resolvedUrl,
