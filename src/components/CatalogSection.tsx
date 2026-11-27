@@ -61,7 +61,7 @@ export function CatalogSection({
   );
   const tabCategories = (
     parentCategories.length > 0 ? parentCategories : sortWooCategories(wooCategories)
-  ).slice(0, 4);
+  ).slice(0, 5);
 
   const activeCategoryObj = activeCategoryId
     ? wooCategories.find((c) => c.id === activeCategoryId)

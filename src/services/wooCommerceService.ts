@@ -1,5 +1,6 @@
 import { isWooCommerceConfigured, WOOCOMMERCE_CONFIG } from '../config/woocommerce';
 import { HERO_ASSETS } from '../data/storefrontAssets';
+import { getReviewSummaryStats, mergeProductReviews } from '../data/productReviews';
 import {
   CartItem,
   MacroCategorySlug,
@@ -86,8 +87,8 @@ interface WooApiProduct {
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const PRODUCTS_CACHE_KEY = 'zampaclub_wc_products_v1';
-const CATEGORIES_CACHE_KEY = 'zampaclub_wc_categories_v1';
+const PRODUCTS_CACHE_KEY = 'zampaclub_wc_products_v2';
+const CATEGORIES_CACHE_KEY = 'zampaclub_wc_categories_v2';
 const VARIATIONS_CACHE_KEY = 'zampaclub_wc_variations_v1';
 const COOLDOWN_STORAGE_KEY = 'zampaclub_wc_cooldown_v1';
 const CART_TOKEN_STORAGE_KEY = 'zampaclub_wc_cart_token_v1';
@@ -545,6 +546,7 @@ function decodeHtmlEntities(text: string): string {
 
 function inferIconName(slug: string, name: string): MegaCategory['iconName'] {
   const s = `${slug} ${name}`.toLowerCase();
+  if (s.includes('supplement') || s.includes('snack')) return 'Sparkles';
   if (s.includes('cat') || s.includes('gatt')) return 'Cat';
   if (s.includes('travel') || s.includes('carrier') || s.includes('gear') || s.includes('viagg')) {
     return 'Luggage';
@@ -572,13 +574,17 @@ const CATEGORY_SORT_PRIORITY: Record<string, number> = {
   cat: 2,
   cats: 2,
   gatti: 2,
-  'home-comfort': 3,
-  'travel-gear': 4,
-  'travel-carriers': 4,
-  'food-treats': 5,
-  'grooming-care': 6,
-  'smart-pet-tech': 7,
-  'small-pets': 8,
+  'dog-supplements': 3,
+  snack: 3,
+  'cat-supplements': 4,
+  'chicken-coops': 5,
+  'home-comfort': 6,
+  'travel-gear': 7,
+  'travel-carriers': 7,
+  'food-treats': 8,
+  'grooming-care': 9,
+  'smart-pet-tech': 10,
+  'small-pets': 11,
 };
 
 const SLUG_ALIASES: Record<string, string[]> = {
@@ -818,6 +824,8 @@ function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
   );
 
   const ratingCount = wp.rating_count ?? wp.review_count ?? 0;
+  const rawRating = parseFloat(wp.average_rating || '0') || 0;
+  const reviewStats = getReviewSummaryStats(wp.id, rawRating, ratingCount);
 
   return {
     id: wp.id,
@@ -831,8 +839,8 @@ function mapWooProductToStoreProduct(wp: WooApiProduct): Product {
     subcategories: cleanCategories.map((c) => c.name),
     price: effectivePrice,
     regular_price: effectiveRegular,
-    rating: parseFloat(wp.average_rating || '4.8') || 4.8,
-    reviews_count: ratingCount,
+    rating: reviewStats.rating,
+    reviews_count: reviewStats.reviewsCount,
     sales_count: wp.total_sales || 0,
     short_description:
       decodeHtmlEntities(stripHtml(wp.short_description || '')) ||
@@ -1645,6 +1653,7 @@ export interface AuthResponse {
 export interface ProductReviewItem {
   id: number;
   reviewer: string;
+  title?: string;
   rating: number;
   review: string;
   dateCreated: string;
@@ -1829,12 +1838,15 @@ export async function updateCustomerPetProfile(
 }
 
 export async function fetchProductReviews(productId: number): Promise<ProductReviewItem[]> {
-  if (!isWooCommerceConfigured()) return [];
+  if (!isWooCommerceConfigured()) {
+    return mergeProductReviews(productId, []);
+  }
   try {
     const raw = await fetchWithDevStoreFallback<
       Array<{
         id?: number;
         reviewer?: string;
+        title?: string;
         rating?: number;
         review?: string;
         date_created?: string;
@@ -1847,17 +1859,20 @@ export async function fetchProductReviews(productId: number): Promise<ProductRev
       '/products/reviews',
       { product_id: String(productId), per_page: '25' }
     );
-    if (!Array.isArray(raw)) return [];
-    return raw.map((item, idx) => ({
-      id: typeof item.id === 'number' ? item.id : idx + 1,
-      reviewer: decodeHtmlEntities(item.reviewer || 'Verified Pet Parent'),
-      rating: Number.isFinite(item.rating) ? Math.min(5, Math.max(1, Number(item.rating))) : 5,
-      review: decodeHtmlEntities(stripHtml(item.review || '')),
-      dateCreated: item.date_created || item.formatted_date_created || '',
-      verified: Boolean(item.verified),
-    }));
+    const mapped: ProductReviewItem[] = Array.isArray(raw)
+      ? raw.map((item, idx) => ({
+          id: typeof item.id === 'number' ? item.id : idx + 1,
+          reviewer: decodeHtmlEntities(item.reviewer || 'Verified Pet Parent'),
+          ...(item.title ? { title: decodeHtmlEntities(item.title) } : {}),
+          rating: Number.isFinite(item.rating) ? Math.min(5, Math.max(1, Number(item.rating))) : 5,
+          review: decodeHtmlEntities(stripHtml(item.review || '')),
+          dateCreated: item.date_created || item.formatted_date_created || '',
+          verified: Boolean(item.verified),
+        }))
+      : [];
+    return mergeProductReviews(productId, mapped);
   } catch {
-    return [];
+    return mergeProductReviews(productId, []);
   }
 }
 

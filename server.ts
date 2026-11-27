@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getCuratedReviewsForProduct } from './src/data/productReviews.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2030,35 +2031,107 @@ async function startServer(): Promise<void> {
   });
 
   app.get('/api/woocommerce/products/:id/reviews', async (req: Request, res: Response) => {
-    const productId = String(req.params.id || '').trim();
-    if (!/^\d+$/.test(productId)) {
+    const productIdStr = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(productIdStr)) {
       res.status(400).json({ error: 'Invalid product ID.' });
       return;
     }
+    const productId = Number.parseInt(productIdStr, 10);
+    const curatedReviews = getCuratedReviewsForProduct(productId);
 
     let storeOrigin: string;
     try {
       storeOrigin = resolveStoreBaseUrl();
     } catch {
+      if (curatedReviews.length > 0) {
+        res.json(curatedReviews);
+        return;
+      }
       res.status(500).json({ error: 'Store configuration is invalid.' });
       return;
     }
 
     const creds = getServerWooCredentials();
-    if (creds) {
-      const upstream = new URL(`${storeOrigin}/wp-json/wc/v3/products/reviews`);
-      upstream.searchParams.set('product', productId);
-      upstream.searchParams.set('per_page', '25');
-      upstream.searchParams.set('status', 'approved');
-      const auth = `Basic ${Buffer.from(`${creds.key}:${creds.secret}`).toString('base64')}`;
-      await handleProxyFetch(res, `v3:reviews:${productId}`, upstream.toString(), auth);
+    const upstreamUrl = creds
+      ? (() => {
+          const u = new URL(`${storeOrigin}/wp-json/wc/v3/products/reviews`);
+          u.searchParams.set('product', productIdStr);
+          u.searchParams.set('per_page', '25');
+          u.searchParams.set('status', 'approved');
+          return u.toString();
+        })()
+      : (() => {
+          const u = new URL(`${storeOrigin}/wp-json/wc/store/v1/products/reviews`);
+          u.searchParams.set('product_id', productIdStr);
+          u.searchParams.set('per_page', '25');
+          return u.toString();
+        })();
+
+    const cacheKey = creds ? `v3:reviews:${productIdStr}` : `store:reviews:${productIdStr}`;
+    const authHeader = creds
+      ? `Basic ${Buffer.from(`${creds.key}:${creds.secret}`).toString('base64')}`
+      : undefined;
+
+    const cached = proxyCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts <= CACHE_TTL_MS && Array.isArray(cached.data)) {
+      res.setHeader('Cache-Control', 'public, max-age=120');
+      res.json(cached.data);
       return;
     }
 
-    const storeReviewsUrl = new URL(`${storeOrigin}/wp-json/wc/store/v1/products/reviews`);
-    storeReviewsUrl.searchParams.set('product_id', productId);
-    storeReviewsUrl.searchParams.set('per_page', '25');
-    await handleProxyFetch(res, `store:reviews:${productId}`, storeReviewsUrl.toString());
+    let upstreamList: Array<Record<string, unknown>> = [];
+    if (Date.now() >= server429CooldownUntil) {
+      try {
+        const result = await fetchUpstreamJson(upstreamUrl, authHeader);
+        if (result.status >= 200 && result.status < 300 && Array.isArray(result.data)) {
+          upstreamList = result.data as Array<Record<string, unknown>>;
+        } else if (curatedReviews.length === 0) {
+          if (cached) {
+            res.json(cached.data);
+            return;
+          }
+          res.status(result.status).json(result.data);
+          return;
+        }
+      } catch {
+        if (curatedReviews.length === 0) {
+          if (cached) {
+            res.json(cached.data);
+            return;
+          }
+          res.status(502).json({ error: 'Unable to reach WooCommerce store' });
+          return;
+        }
+      }
+    }
+
+    const seenKeys = new Set(
+      upstreamList.map((r) => {
+        const reviewer = String(r.reviewer || '').trim().toLowerCase();
+        const body = String(r.review || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 32).toLowerCase();
+        return `${reviewer}::${body}`;
+      })
+    );
+
+    const curatedFormatted = curatedReviews
+      .filter((c) => {
+        const key = `${c.reviewer.trim().toLowerCase()}::${c.review.trim().slice(0, 32).toLowerCase()}`;
+        return !seenKeys.has(key);
+      })
+      .map((c) => ({
+        id: c.id,
+        reviewer: c.reviewer,
+        title: c.title,
+        rating: c.rating,
+        review: c.review,
+        date_created: c.dateCreated,
+        verified: Boolean(c.verified),
+      }));
+
+    const merged = [...upstreamList, ...curatedFormatted];
+    proxyCache.set(cacheKey, { ts: Date.now(), data: merged });
+    res.setHeader('Cache-Control', 'public, max-age=120');
+    res.json(merged);
   });
 
   app.post('/api/woocommerce/products/:id/reviews', async (req: Request, res: Response) => {

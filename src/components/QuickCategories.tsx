@@ -1,4 +1,6 @@
+import catCatSupplementsImg from '../assets/images/cat_cat_supplements_1795802004066.jpg';
 import catChickenCoopsImg from '../assets/images/cat_chicken_coops_1795787336834.jpg';
+import catDogSupplementsImg from '../assets/images/cat_dog_supplements_1795802005153.jpg';
 import prodCucciaImg from '../assets/images/prod_cuccia_nuvola.webp';
 import prodDistributoreImg from '../assets/images/prod_distributore_wifi.webp';
 import prodSpazzolaImg from '../assets/images/prod_spazzola_vapore.webp';
@@ -22,13 +24,50 @@ function resolveCategoryImage(cat: WooCategory): string {
   const slug = cat.slug.toLowerCase();
   const name = cat.name.toLowerCase();
 
-  if (slug === 'dog' || slug === 'dogs' || slug === 'cani' || /\bdogs?\b/.test(name)) {
+  const isSupplement =
+    slug.includes('supplement') ||
+    slug === 'snack' ||
+    name.includes('supplement');
+
+  if (
+    isSupplement &&
+    (slug.includes('cat') || name.includes('cat') || name.includes('gatti'))
+  ) {
+    return catCatSupplementsImg;
+  }
+  if (
+    isSupplement &&
+    (slug.includes('dog') ||
+      slug === 'snack' ||
+      name.includes('dog') ||
+      name.includes('cani'))
+  ) {
+    return catDogSupplementsImg;
+  }
+  if (
+    slug === 'dog' ||
+    slug === 'dogs' ||
+    slug === 'cani' ||
+    name === 'dog' ||
+    name === 'dogs'
+  ) {
     return HERO_ASSETS.promoDogs;
   }
-  if (slug === 'cat' || slug === 'cats' || slug === 'gatti' || /\bcats?\b/.test(name)) {
+  if (
+    slug === 'cat' ||
+    slug === 'cats' ||
+    slug === 'gatti' ||
+    name === 'cat' ||
+    name === 'cats'
+  ) {
     return HERO_ASSETS.promoCats;
   }
-  if (slug.includes('chicken') || slug.includes('coop') || name.includes('chicken') || name.includes('coop')) {
+  if (
+    slug.includes('chicken') ||
+    slug.includes('coop') ||
+    name.includes('chicken') ||
+    name.includes('coop')
+  ) {
     return catChickenCoopsImg;
   }
   if (cat.image) {

@@ -569,31 +569,59 @@ export function ProductModal({
               </div>
             ) : (
               <div className="space-y-3">
-                {reviews.slice(0, 6).map((rev) => (
-                  <div
-                    key={rev.id}
-                    className="rounded-xl border border-[#E7E5E4] bg-[#FAFAF9] p-4 space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-[#1C1917]">
-                        {rev.reviewer}
-                      </span>
-                      <div className="flex items-center gap-0.5" aria-label={`${rev.rating} out of 5 stars`}>
-                        {[1, 2, 3, 4, 5].map((s) => (
-                          <Star
-                            key={s}
-                            className={`w-3.5 h-3.5 ${
-                              s <= rev.rating
-                                ? 'fill-[#C2410C] text-[#C2410C]'
-                                : 'text-[#D6D3D1]'
-                            }`}
-                          />
-                        ))}
+                {reviews.map((rev) => {
+                  const formattedDate = rev.dateCreated
+                    ? (() => {
+                        const d = new Date(rev.dateCreated);
+                        return Number.isNaN(d.getTime())
+                          ? rev.dateCreated
+                          : d.toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            });
+                      })()
+                    : '';
+                  return (
+                    <div
+                      key={rev.id}
+                      className="rounded-xl border border-[#E7E5E4] bg-[#FAFAF9] p-4 space-y-1.5"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-[#1C1917]">
+                            {rev.reviewer}
+                          </span>
+                          {rev.verified && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0F766E]">
+                              <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+                              Verified Purchase
+                            </span>
+                          )}
+                          {formattedDate && (
+                            <span className="text-xs text-[#78716C]">{formattedDate}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-0.5" aria-label={`${rev.rating} out of 5 stars`}>
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Star
+                              key={s}
+                              className={`w-3.5 h-3.5 ${
+                                s <= rev.rating
+                                  ? 'fill-[#C2410C] text-[#C2410C]'
+                                  : 'text-[#D6D3D1]'
+                              }`}
+                            />
+                          ))}
+                        </div>
                       </div>
+                      {rev.title && (
+                        <h4 className="text-sm font-bold text-[#1C1917]">{rev.title}</h4>
+                      )}
+                      <p className="text-sm text-[#57534E] leading-relaxed">{rev.review}</p>
                     </div>
-                    <p className="text-sm text-[#57534E] leading-relaxed">{rev.review}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
