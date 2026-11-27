@@ -172,17 +172,127 @@ export function Footer({
             <p className="text-xs text-[#57534E] leading-relaxed">
               256-bit SSL encrypted transactions via WooCommerce Checkout.
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              {['VISA', 'Mastercard', 'Amex', 'PayPal', 'Apple Pay', 'Klarna'].map(
-                (method) => (
-                  <div
-                    key={method}
-                    className="px-2.5 py-2 rounded-lg border border-[#E7E5E4] bg-[#FAFAF9] text-center text-xs font-semibold text-[#1C1917]"
-                  >
-                    {method}
-                  </div>
-                )
-              )}
+            <div
+              className="grid grid-cols-2 gap-2"
+              aria-label="Accepted payment methods"
+            >
+              {/* Visa */}
+              <div
+                className="h-10 px-2.5 rounded-lg border border-[#E7E5E4] bg-[#FAFAF9] flex items-center justify-center gap-1.5 min-w-0"
+                title="Visa"
+              >
+                <svg
+                  viewBox="0 0 36 12"
+                  className="w-9 h-3.5 shrink-0"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M14.6 11.4h-2.5L13.7.8h2.5l-1.6 10.6zm10.5-10.3c-.5-.2-1.3-.4-2.2-.4-2.4 0-4.1 1.3-4.1 3.1 0 1.4 1.2 2.1 2.2 2.6 1 .5 1.3.8 1.3 1.2 0 .6-.8.9-1.5.9-1 0-1.5-.1-2.4-.5l-.3-.2-.4 2.1c.6.3 1.7.5 2.8.5 2.6 0 4.3-1.2 4.3-3.2 0-1.1-.6-1.9-2.1-2.6-.9-.4-1.4-.7-1.4-1.2 0-.4.5-.8 1.4-.8.8 0 1.4.2 1.8.4l.2.1.4-2zm6.4-.3h-1.9c-.6 0-1.1.2-1.3.8l-3.8 9.8h2.6l.5-1.5h3.2l.3 1.5h2.3L31.5.8zm-3.1 6.9l1-2.8c0 .1.2-.6.3-1l.2.9.6 2.9h-2.1zM9.8.8L7.4 8l-.3-1.3C6.6 5.1 5.2 3.4 3.6 2.5L5.8 11.4h2.6L12.5.8H9.8z"
+                    fill="#1A1F71"
+                  />
+                  <path
+                    d="M5.1.8H1.1L1 1c3.1.8 5.2 2.7 6 5L6.2 1.6C6.1 1 5.6.8 5.1.8z"
+                    fill="#F9A533"
+                  />
+                </svg>
+                <span className="sr-only">Visa</span>
+              </div>
+
+              {/* Mastercard */}
+              <div
+                className="h-10 px-2.5 rounded-lg border border-[#E7E5E4] bg-[#FAFAF9] flex items-center justify-center gap-1.5 min-w-0"
+                title="Mastercard"
+              >
+                <svg
+                  viewBox="0 0 28 18"
+                  className="w-6 h-4 shrink-0"
+                  aria-hidden="true"
+                >
+                  <circle cx="10" cy="9" r="7" fill="#EB001B" />
+                  <circle cx="18" cy="9" r="7" fill="#F79E1B" fillOpacity="0.9" />
+                  <path
+                    d="M14 3.4a7 7 0 0 1 0 11.2 7 7 0 0 1 0-11.2z"
+                    fill="#FF5F00"
+                  />
+                </svg>
+                <span className="text-[11px] font-semibold text-[#1C1917] truncate">
+                  Mastercard
+                </span>
+              </div>
+
+              {/* American Express */}
+              <div
+                className="h-10 px-2.5 rounded-lg border border-[#E7E5E4] bg-[#FAFAF9] flex items-center justify-center gap-1.5 min-w-0"
+                title="American Express"
+              >
+                <span
+                  className="inline-flex items-center justify-center w-5 h-4 rounded-[3px] bg-[#006FCF] text-white text-[8px] font-extrabold tracking-tighter shrink-0"
+                  aria-hidden="true"
+                >
+                  AMEX
+                </span>
+                <span className="text-[11px] font-semibold text-[#1C1917] truncate">
+                  Amex
+                </span>
+              </div>
+
+              {/* PayPal */}
+              <div
+                className="h-10 px-2.5 rounded-lg border border-[#E7E5E4] bg-[#FAFAF9] flex items-center justify-center gap-1.5 min-w-0"
+                title="PayPal"
+              >
+                <svg
+                  viewBox="0 0 16 18"
+                  className="w-3.5 h-4 shrink-0"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M6.2 1.5h4.3c2.2 0 3.6 1.1 3.2 3.3-.4 2.4-2.1 3.7-4.5 3.7H7.5l-.8 4.8H4.2l2-11.8z"
+                    fill="#003087"
+                  />
+                  <path
+                    d="M7.6 5.2h3.8c1.9 0 3.1.9 2.7 2.8-.4 2.1-1.9 3.2-4 3.2H8.5l-.7 4.3H5.5l2.1-10.3z"
+                    fill="#0079C1"
+                  />
+                </svg>
+                <span className="text-[11px] font-semibold text-[#1C1917] truncate">
+                  PayPal
+                </span>
+              </div>
+
+              {/* Apple Pay */}
+              <div
+                className="h-10 px-2.5 rounded-lg border border-[#E7E5E4] bg-[#FAFAF9] flex items-center justify-center gap-1 min-w-0"
+                title="Apple Pay"
+              >
+                <svg
+                  viewBox="0 0 16 18"
+                  className="w-3.5 h-3.5 shrink-0 text-[#1C1917]"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M12.9 9.5c0-2 1.6-3 1.7-3.1-.9-1.4-2.4-1.5-2.9-1.6-1.2-.1-2.4.7-3 .7-.6 0-1.6-.7-2.6-.7-1.3 0-2.6.8-3.3 2-.1.2-1.3 2.5-.2 5.4.6 1.4 1.5 2.9 2.6 2.8 1 0 1.4-.7 2.7-.7 1.2 0 1.6.7 2.7.7 1.1 0 1.9-1.3 2.5-2.7.8-1.2 1.1-2.3 1.1-2.4-.1 0-1.3-.5-1.3-2.4zM10.8 3.6c.6-.7 1-1.7.9-2.6-.8 0-1.9.6-2.5 1.3-.5.6-1 1.6-.9 2.5 1 .1 1.9-.5 2.5-1.2z" />
+                </svg>
+                <span className="text-[11px] font-semibold text-[#1C1917] truncate">
+                  Apple Pay
+                </span>
+              </div>
+
+              {/* Klarna */}
+              <div
+                className="h-10 px-2.5 rounded-lg border border-[#E7E5E4] bg-[#FAFAF9] flex items-center justify-center gap-1.5 min-w-0"
+                title="Klarna"
+              >
+                <span
+                  className="inline-flex items-center justify-center w-4 h-4 rounded-[3px] bg-[#FFB3C7] text-[#1C1917] text-[9px] font-black shrink-0"
+                  aria-hidden="true"
+                >
+                  K
+                </span>
+                <span className="text-[11px] font-semibold text-[#1C1917] truncate">
+                  Klarna
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-[#0F766E] font-medium pt-1">
               <ShieldCheck className="w-4 h-4 shrink-0" />
