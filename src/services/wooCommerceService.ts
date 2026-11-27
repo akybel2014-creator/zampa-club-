@@ -1623,3 +1623,297 @@ export async function submitWooCommerceCheckout(
 
   return inFlightCheckoutPromise;
 }
+
+export interface CustomerUser {
+  id?: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  petName?: string;
+  petType?: string;
+}
+
+export interface AuthResponse {
+  ok: boolean;
+  authenticated?: boolean;
+  sessionToken?: string;
+  user?: CustomerUser | null;
+  error?: string;
+}
+
+export interface ProductReviewItem {
+  id: number;
+  reviewer: string;
+  rating: number;
+  review: string;
+  dateCreated: string;
+  verified?: boolean;
+}
+
+function buildAuthHeaders(sessionToken?: string | null, includeJson = false): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
+  };
+  if (includeJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
+  return headers;
+}
+
+export async function fetchAuthSession(sessionToken?: string | null): Promise<{
+  authenticated: boolean;
+  user: CustomerUser | null;
+}> {
+  if (!isWooCommerceConfigured()) {
+    return { authenticated: false, user: null };
+  }
+  try {
+    const endpoint = buildProxyEndpoint('/auth/session');
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      credentials: 'include',
+      headers: buildAuthHeaders(sessionToken, false),
+    });
+    if (!res.ok) return { authenticated: false, user: null };
+    const data = (await res.json().catch(() => ({}))) as {
+      authenticated?: boolean;
+      user?: CustomerUser | null;
+    };
+    return {
+      authenticated: Boolean(data.authenticated && data.user),
+      user: data.user || null,
+    };
+  } catch {
+    return { authenticated: false, user: null };
+  }
+}
+
+export async function loginCustomer(
+  email: string,
+  password: string
+): Promise<AuthResponse> {
+  if (!isWooCommerceConfigured()) {
+    return { ok: false, error: 'Store sign in is currently unavailable.' };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 18000);
+  try {
+    const endpoint = buildProxyEndpoint('/auth/login');
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildAuthHeaders(null, true),
+      body: JSON.stringify({ email, password }),
+      signal: controller.signal,
+    });
+    const data = (await res.json().catch(() => ({}))) as AuthResponse;
+    if (!res.ok || !data.ok || !data.user) {
+      return {
+        ok: false,
+        error: data.error || 'Invalid email or password. Please try again.',
+      };
+    }
+    return {
+      ok: true,
+      authenticated: true,
+      sessionToken: data.sessionToken,
+      user: data.user,
+    };
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      error: isTimeout
+        ? 'Sign in timed out. Please try again.'
+        : 'Unable to reach the store. Please check your connection and try again.',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function registerCustomer(params: {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  petName?: string;
+  petType?: string;
+}): Promise<AuthResponse> {
+  if (!isWooCommerceConfigured()) {
+    return { ok: false, error: 'Account creation is currently unavailable.' };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 18000);
+  try {
+    const endpoint = buildProxyEndpoint('/auth/register');
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildAuthHeaders(null, true),
+      body: JSON.stringify(params),
+      signal: controller.signal,
+    });
+    const data = (await res.json().catch(() => ({}))) as AuthResponse;
+    if (!res.ok || !data.ok || !data.user) {
+      return {
+        ok: false,
+        error: data.error || 'Unable to create your account. Please try again.',
+      };
+    }
+    return {
+      ok: true,
+      authenticated: true,
+      sessionToken: data.sessionToken,
+      user: data.user,
+    };
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      error: isTimeout
+        ? 'Registration timed out. Please try again.'
+        : 'Unable to reach the store. Please check your connection and try again.',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function logoutCustomer(sessionToken?: string | null): Promise<void> {
+  if (!isWooCommerceConfigured()) return;
+  try {
+    const endpoint = buildProxyEndpoint('/auth/logout');
+    await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildAuthHeaders(sessionToken, true),
+      body: JSON.stringify({}),
+    });
+  } catch {
+    // Best-effort server logout
+  }
+}
+
+export async function updateCustomerPetProfile(
+  params: { petName: string; petType: string },
+  sessionToken?: string | null
+): Promise<AuthResponse> {
+  if (!isWooCommerceConfigured()) {
+    return { ok: false, error: 'Unable to save pet profile right now.' };
+  }
+  try {
+    const endpoint = buildProxyEndpoint('/auth/pet-profile');
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildAuthHeaders(sessionToken, true),
+      body: JSON.stringify(params),
+    });
+    const data = (await res.json().catch(() => ({}))) as AuthResponse;
+    if (!res.ok || !data.ok) {
+      return {
+        ok: false,
+        error: data.error || 'Unable to save your pet profile.',
+      };
+    }
+    return { ok: true, user: data.user || null };
+  } catch {
+    return { ok: false, error: 'Unable to save your pet profile right now.' };
+  }
+}
+
+export async function fetchProductReviews(productId: number): Promise<ProductReviewItem[]> {
+  if (!isWooCommerceConfigured()) return [];
+  try {
+    const raw = await fetchWithDevStoreFallback<
+      Array<{
+        id?: number;
+        reviewer?: string;
+        rating?: number;
+        review?: string;
+        date_created?: string;
+        formatted_date_created?: string;
+        verified?: boolean;
+      }>
+    >(
+      `/products/${productId}/reviews`,
+      {},
+      '/products/reviews',
+      { product_id: String(productId), per_page: '25' }
+    );
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item, idx) => ({
+      id: typeof item.id === 'number' ? item.id : idx + 1,
+      reviewer: decodeHtmlEntities(item.reviewer || 'Verified Pet Parent'),
+      rating: Number.isFinite(item.rating) ? Math.min(5, Math.max(1, Number(item.rating))) : 5,
+      review: decodeHtmlEntities(stripHtml(item.review || '')),
+      dateCreated: item.date_created || item.formatted_date_created || '',
+      verified: Boolean(item.verified),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function submitProductReview(
+  productId: number,
+  params: { rating: number; review: string },
+  sessionToken?: string | null
+): Promise<{
+  ok: boolean;
+  requiresAuth?: boolean;
+  review?: ProductReviewItem;
+  error?: string;
+}> {
+  if (!isWooCommerceConfigured()) {
+    return { ok: false, error: 'Review submission is currently unavailable.' };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 18000);
+  try {
+    const endpoint = buildProxyEndpoint(`/products/${productId}/reviews`);
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildAuthHeaders(sessionToken, true),
+      body: JSON.stringify(params),
+      signal: controller.signal,
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      review?: ProductReviewItem;
+      error?: string;
+    };
+    if (res.status === 401) {
+      return {
+        ok: false,
+        requiresAuth: true,
+        error: data.error || 'Please sign in to submit a product review.',
+      };
+    }
+    if (!res.ok || !data.ok || !data.review) {
+      return {
+        ok: false,
+        error: data.error || 'Unable to submit your review right now.',
+      };
+    }
+    return { ok: true, review: data.review };
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      error: isTimeout
+        ? 'Submitting your review timed out. Please try again.'
+        : 'Network error while submitting your review.',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+

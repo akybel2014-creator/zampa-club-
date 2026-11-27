@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { formatUsd } from '../config/woocommerce';
+import { useAuth } from '../context/AuthContext';
 import {
   MacroCategorySlug,
   MegaCategory,
@@ -84,6 +85,7 @@ export function Header({
   onOpenAccount,
   onResetFilters,
 }: HeaderProps) {
+  const { user, isAuthenticated } = useAuth();
   const [megaOpen, setMegaOpen] = useState(false);
   const [hoveredCatSlug, setHoveredCatSlug] = useState<MacroCategorySlug>(
     megaCategories[0]?.slug || ''
@@ -552,10 +554,12 @@ export function Header({
                 type="button"
                 onClick={onOpenAccount}
                 className="inline-flex items-center justify-center gap-2 min-w-[44px] min-h-[44px] px-2.5 sm:px-3 py-2 rounded-xl border border-transparent hover:border-[#E7E5E4] hover:bg-[#FAFAF9] text-sm font-medium text-[#1C1917] transition-colors whitespace-nowrap"
-                aria-label="Account and WooCommerce store connection"
+                aria-label="Open account and pet profile"
               >
                 <User className="w-5 h-5 text-[#57534E]" />
-                <span className="hidden sm:inline">Account</span>
+                <span className="hidden sm:inline">
+                  {isAuthenticated ? user?.firstName || 'Account' : 'Account'}
+                </span>
               </button>
 
               <button

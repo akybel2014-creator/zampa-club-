@@ -13,7 +13,7 @@ export function ZampaLogo({ className = '', size = 'md' }: ZampaLogoProps) {
 
   return (
     <img
-      src="/assets/aistudio/Logo_ZampaClub_con_Zampa_e_Cuorearpaa_67fcb191.png"
+      src="/assets/aistudio/logo_zampaclub_transparent.png"
       alt="Zampa Club"
       decoding="async"
       className={`${heightClass} w-auto object-contain select-none shrink-0 ${className}`}

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import express from 'express';
 import type { Request, Response } from 'express';
 import fs from 'node:fs';
@@ -25,6 +26,238 @@ const inFlightProxyRequests = new Map<
   Promise<{ status: number; data: unknown; retryAfterSeconds?: number }>
 >();
 let server429CooldownUntil = 0;
+
+interface CustomerSessionRecord {
+  sessionId: string;
+  userId?: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  petName?: string;
+  petType?: string;
+  wpCookies: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_COOKIE_NAME = 'zampa_session';
+const SESSION_SECRET =
+  (process.env.SESSION_SECRET || '').trim() || crypto.randomBytes(32).toString('hex');
+const customerSessions = new Map<string, CustomerSessionRecord>();
+
+function signSessionId(sessionId: string): string {
+  const sig = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(sessionId)
+    .digest('base64url');
+  return `${sessionId}.${sig}`;
+}
+
+function verifySignedSessionToken(rawToken: string): string | null {
+  const trimmed = rawToken.trim();
+  const dotIdx = trimmed.indexOf('.');
+  if (dotIdx <= 0) return null;
+  const sessionId = trimmed.slice(0, dotIdx);
+  const providedSig = trimmed.slice(dotIdx + 1);
+  if (!/^[a-f0-9]{32,64}$/i.test(sessionId) || !providedSig) return null;
+
+  const expectedSig = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(sessionId)
+    .digest('base64url');
+
+  const a = Buffer.from(providedSig, 'utf8');
+  const b = Buffer.from(expectedSig, 'utf8');
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return null;
+  }
+  return sessionId;
+}
+
+function parseCookieHeader(headerVal: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!headerVal) return out;
+  for (const part of headerVal.split(';')) {
+    const eqIdx = part.indexOf('=');
+    if (eqIdx <= 0) continue;
+    const key = part.slice(0, eqIdx).trim();
+    const val = part.slice(eqIdx + 1).trim();
+    if (key) out[key] = decodeURIComponent(val);
+  }
+  return out;
+}
+
+function getAuthenticatedSession(req: Request): CustomerSessionRecord | null {
+  const authHeader = (req.header('authorization') || '').trim();
+  let rawToken = '';
+  if (authHeader.toLowerCase().startsWith('bearer ')) {
+    rawToken = authHeader.slice(7).trim();
+  }
+  if (!rawToken) {
+    const cookies = parseCookieHeader(req.header('cookie'));
+    rawToken = cookies[SESSION_COOKIE_NAME] || '';
+  }
+  if (!rawToken) return null;
+
+  const sessionId = verifySignedSessionToken(rawToken);
+  if (!sessionId) return null;
+
+  const record = customerSessions.get(sessionId);
+  if (!record) return null;
+  if (Date.now() > record.expiresAt) {
+    customerSessions.delete(sessionId);
+    return null;
+  }
+  return record;
+}
+
+function setCustomerSessionCookie(res: Response, signedToken: string): void {
+  const maxAgeSec = Math.floor(SESSION_TTL_MS / 1000);
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(signedToken)}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; Secure; SameSite=None; Partitioned`
+  );
+}
+
+function clearCustomerSessionCookie(res: Response): void {
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None; Partitioned`
+  );
+}
+
+function isAllowedSameOriginRequest(req: Request): boolean {
+  const hasXhrHeader = req.header('x-requested-with') === 'XMLHttpRequest';
+  const origin = (req.header('origin') || '').trim();
+  if (!origin) {
+    return hasXhrHeader;
+  }
+  try {
+    const originHost = new URL(origin).host.toLowerCase();
+    const forwardedHost = (req.header('x-forwarded-host') || '').split(',')[0].trim().toLowerCase();
+    const host = (req.header('host') || '').split(',')[0].trim().toLowerCase();
+    if (
+      (forwardedHost && originHost === forwardedHost) ||
+      (host && originHost === host) ||
+      originHost === `localhost:${PORT}` ||
+      originHost === `127.0.0.1:${PORT}`
+    ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function toPublicCustomerUser(session: CustomerSessionRecord) {
+  return {
+    id: session.userId,
+    email: session.email,
+    firstName: session.firstName,
+    lastName: session.lastName,
+    displayName:
+      session.displayName ||
+      [session.firstName, session.lastName].filter(Boolean).join(' ') ||
+      session.email.split('@')[0],
+    petName: session.petName || '',
+    petType: session.petType || '',
+  };
+}
+
+function collectSetCookiePairs(response: globalThis.Response): string[] {
+  const headersAny = response.headers as unknown as {
+    getSetCookie?: () => string[];
+    get: (name: string) => string | null;
+  };
+  const rawList =
+    typeof headersAny.getSetCookie === 'function'
+      ? headersAny.getSetCookie()
+      : headersAny.get('set-cookie')
+        ? [headersAny.get('set-cookie') as string]
+        : [];
+  const pairs: string[] = [];
+  for (const raw of rawList) {
+    const firstPart = raw.split(';')[0]?.trim();
+    if (firstPart && firstPart.includes('=')) {
+      pairs.push(firstPart);
+    }
+  }
+  return pairs;
+}
+
+function mergeCookieStrings(...cookieLists: string[][]): string {
+  const map = new Map<string, string>();
+  for (const list of cookieLists) {
+    for (const pair of list) {
+      const idx = pair.indexOf('=');
+      if (idx > 0) {
+        map.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim());
+      }
+    }
+  }
+  return Array.from(map.entries())
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ');
+}
+
+function extractPlainTextHtmlError(html: string): string {
+  const match =
+    html.match(/<div[^>]*id=["']login_error["'][^>]*>([\s\S]*?)<\/div>/i) ||
+    html.match(/<ul[^>]*class=["'][^"']*woocommerce-error[^"']*["'][^>]*>([\s\S]*?)<\/ul>/i);
+  const raw = match ? match[1] : '';
+  return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+async function authenticateViaWordPressLogin(
+  storeOrigin: string,
+  email: string,
+  password: string,
+  signal: AbortSignal
+): Promise<{ ok: boolean; wpCookies: string; error?: string }> {
+  const body = new URLSearchParams({
+    log: email,
+    pwd: password,
+    'wp-submit': 'Log In',
+    testcookie: '1',
+    redirect_to: `${storeOrigin}/mio-account/`,
+  });
+
+  const loginRes = await fetch(`${storeOrigin}/wp-login.php`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'text/html,application/xhtml+xml',
+      Cookie: 'wordpress_test_cookie=WP%20Cookie%20check',
+      'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+    },
+    body: body.toString(),
+    redirect: 'manual',
+    signal,
+  });
+
+  const cookiePairs = collectSetCookiePairs(loginRes);
+  const hasLoggedInCookie = cookiePairs.some((c) =>
+    c.startsWith('wordpress_logged_in_')
+  );
+
+  if (!hasLoggedInCookie) {
+    const html = await loginRes.text().catch(() => '');
+    const parsedErr = extractPlainTextHtmlError(html);
+    return {
+      ok: false,
+      wpCookies: '',
+      error: parsedErr || 'Invalid email or password. Please try again.',
+    };
+  }
+
+  return {
+    ok: true,
+    wpCookies: mergeCookieStrings(cookiePairs),
+  };
+}
 
 function isPrivateOrBlockedHost(hostname: string): boolean {
   const lower = hostname.toLowerCase();
@@ -294,9 +527,26 @@ async function startServer(): Promise<void> {
   app.use(express.json({ limit: '64kb' }));
 
   app.use('/api', (req: Request, res: Response, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const isAuthOrPrivateMutation =
+      req.path.startsWith('/woocommerce/auth') ||
+      (req.method === 'POST' && /^\/woocommerce\/products\/\d+\/reviews\/?$/.test(req.path));
+
+    if (isAuthOrPrivateMutation) {
+      const origin = (req.header('origin') || '').trim();
+      if (origin && isAllowedSameOriginRequest(req)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Vary', 'Origin');
+      }
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Cart-Token, Nonce');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Accept, Authorization, X-Requested-With, Cart-Token, Nonce'
+    );
     res.setHeader('Access-Control-Expose-Headers', 'Cart-Token, Nonce');
     res.setHeader('Access-Control-Max-Age', '86400');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -1358,6 +1608,621 @@ async function startServer(): Promise<void> {
         error: isTimeout
           ? 'WooCommerce checkout request timed out.'
           : 'Unable to complete WooCommerce API checkout.',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  app.get('/api/woocommerce/auth/session', (req: Request, res: Response) => {
+    const session = getAuthenticatedSession(req);
+    res.setHeader('Cache-Control', 'no-store');
+    if (!session) {
+      res.json({ authenticated: false, user: null });
+      return;
+    }
+    res.json({
+      authenticated: true,
+      user: toPublicCustomerUser(session),
+    });
+  });
+
+  app.post('/api/woocommerce/auth/login', async (req: Request, res: Response) => {
+    if (!isAllowedSameOriginRequest(req)) {
+      res.status(403).json({ error: 'Invalid request origin.' });
+      return;
+    }
+
+    let storeOrigin: string;
+    try {
+      storeOrigin = resolveStoreBaseUrl();
+    } catch {
+      res.status(500).json({ error: 'Store configuration is invalid.' });
+      return;
+    }
+
+    const body = (req.body || {}) as { email?: string; password?: string };
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: 'Please enter a valid email address.' });
+      return;
+    }
+    if (!password || password.length < 4) {
+      res.status(400).json({ error: 'Please enter your password.' });
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
+
+    try {
+      const loginOutcome = await authenticateViaWordPressLogin(
+        storeOrigin,
+        email,
+        password,
+        controller.signal
+      );
+
+      if (!loginOutcome.ok) {
+        res.status(401).json({
+          error: 'Invalid email or password. Please check your credentials and try again.',
+        });
+        return;
+      }
+
+      let userId: number | undefined;
+      let firstName = '';
+      let lastName = '';
+      let petName = '';
+      let petType = '';
+
+      const creds = getServerWooCredentials();
+      if (creds) {
+        const auth = `Basic ${Buffer.from(`${creds.key}:${creds.secret}`).toString('base64')}`;
+        const custRes = await fetch(
+          `${storeOrigin}/wp-json/wc/v3/customers?email=${encodeURIComponent(email)}`,
+          {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              Authorization: auth,
+              'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+            },
+            signal: controller.signal,
+          }
+        ).catch(() => null);
+
+        if (custRes && custRes.ok) {
+          const customers = (await custRes.json().catch(() => [])) as Array<{
+            id?: number;
+            first_name?: string;
+            last_name?: string;
+            meta_data?: Array<{ key?: string; value?: unknown }>;
+          }>;
+          const match = Array.isArray(customers) ? customers[0] : undefined;
+          if (match) {
+            userId = match.id;
+            firstName = String(match.first_name || '').trim();
+            lastName = String(match.last_name || '').trim();
+            const metaPetName = match.meta_data?.find((m) => m.key === 'pet_name')?.value;
+            const metaPetType = match.meta_data?.find((m) => m.key === 'pet_type')?.value;
+            if (typeof metaPetName === 'string') petName = metaPetName;
+            if (typeof metaPetType === 'string') petType = metaPetType;
+          }
+        }
+      }
+
+      const sessionId = crypto.randomBytes(24).toString('hex');
+      const now = Date.now();
+      const session: CustomerSessionRecord = {
+        sessionId,
+        userId,
+        email,
+        firstName,
+        lastName,
+        displayName:
+          [firstName, lastName].filter(Boolean).join(' ') || email.split('@')[0],
+        petName,
+        petType,
+        wpCookies: loginOutcome.wpCookies,
+        createdAt: now,
+        expiresAt: now + SESSION_TTL_MS,
+      };
+      customerSessions.set(sessionId, session);
+
+      const signedToken = signSessionId(sessionId);
+      setCustomerSessionCookie(res, signedToken);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        sessionToken: signedToken,
+        user: toPublicCustomerUser(session),
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      res.status(isTimeout ? 504 : 502).json({
+        error: isTimeout
+          ? 'Sign in timed out. Please try again.'
+          : 'Unable to reach the store right now. Please try again.',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  app.post('/api/woocommerce/auth/register', async (req: Request, res: Response) => {
+    if (!isAllowedSameOriginRequest(req)) {
+      res.status(403).json({ error: 'Invalid request origin.' });
+      return;
+    }
+
+    let storeOrigin: string;
+    try {
+      storeOrigin = resolveStoreBaseUrl();
+    } catch {
+      res.status(500).json({ error: 'Store configuration is invalid.' });
+      return;
+    }
+
+    const body = (req.body || {}) as {
+      email?: string;
+      password?: string;
+      firstName?: string;
+      lastName?: string;
+      petName?: string;
+      petType?: string;
+    };
+
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+    const firstName = String(body.firstName || '').trim().slice(0, 80);
+    const lastName = String(body.lastName || '').trim().slice(0, 80);
+    const petName = String(body.petName || '').trim().slice(0, 80);
+    const petType = String(body.petType || '').trim().slice(0, 40);
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: 'Please enter a valid email address.' });
+      return;
+    }
+    if (!password || password.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+      return;
+    }
+    if (!firstName || !lastName) {
+      res.status(400).json({ error: 'Please enter your first and last name.' });
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
+
+    try {
+      const creds = getServerWooCredentials();
+      let userId: number | undefined;
+      let wpCookies = '';
+
+      if (creds) {
+        const auth = `Basic ${Buffer.from(`${creds.key}:${creds.secret}`).toString('base64')}`;
+        const usernameBase = email
+          .split('@')[0]
+          .replace(/[^a-zA-Z0-9._-]/g, '')
+          .slice(0, 30) || 'zampamember';
+        const username = `${usernameBase}_${crypto.randomBytes(2).toString('hex')}`;
+
+        const metaData: Array<{ key: string; value: string }> = [];
+        if (petName) metaData.push({ key: 'pet_name', value: petName });
+        if (petType) metaData.push({ key: 'pet_type', value: petType });
+
+        const createRes = await fetch(`${storeOrigin}/wp-json/wc/v3/customers`, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: auth,
+            'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+          },
+          body: JSON.stringify({
+            email,
+            first_name: firstName,
+            last_name: lastName,
+            username,
+            password,
+            ...(metaData.length > 0 ? { meta_data: metaData } : {}),
+          }),
+          signal: controller.signal,
+        });
+
+        const createJson = (await createRes.json().catch(() => ({}))) as {
+          id?: number;
+          code?: string;
+          message?: string;
+        };
+
+        if (!createRes.ok) {
+          const msg =
+            createJson.code === 'registration-error-email-exists'
+              ? 'An account with this email already exists. Please sign in instead.'
+              : (createJson.message || 'Unable to create your account.').replace(/<[^>]+>/g, '');
+          res.status(createRes.status >= 400 && createRes.status < 500 ? 400 : 502).json({
+            error: msg,
+          });
+          return;
+        }
+
+        userId = createJson.id;
+        const loginOutcome = await authenticateViaWordPressLogin(
+          storeOrigin,
+          email,
+          password,
+          controller.signal
+        ).catch(() => ({ ok: false, wpCookies: '' }));
+        wpCookies = loginOutcome.wpCookies;
+      } else {
+        // Fallback: submit native WooCommerce My Account registration form when WC REST v3 keys are not configured
+        const accountPageCandidates = [`${storeOrigin}/mio-account/`, `${storeOrigin}/my-account/`];
+        let registered = false;
+        let lastErrorMsg = '';
+
+        for (const accountUrl of accountPageCandidates) {
+          const pageRes = await fetch(accountUrl, {
+            method: 'GET',
+            headers: {
+              Accept: 'text/html',
+              'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+            },
+            signal: controller.signal,
+          }).catch(() => null);
+
+          if (!pageRes || !pageRes.ok) continue;
+          const html = await pageRes.text();
+          const nonceMatch = html.match(
+            /name=["']woocommerce-register-nonce["'][^>]*value=["']([^"']+)["']/i
+          );
+          if (!nonceMatch) continue;
+
+          const preCookies = collectSetCookiePairs(pageRes);
+          const refererMatch = html.match(
+            /name=["']_wp_http_referer["'][^>]*value=["']([^"']+)["']/i
+          );
+
+          const formParams = new URLSearchParams({
+            email,
+            password,
+            'woocommerce-register-nonce': nonceMatch[1],
+            _wp_http_referer: refererMatch ? refererMatch[1] : new URL(accountUrl).pathname,
+            register: 'Register',
+          });
+
+          const regRes = await fetch(accountUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              Accept: 'text/html',
+              Origin: storeOrigin,
+              Referer: accountUrl,
+              ...(preCookies.length > 0 ? { Cookie: mergeCookieStrings(preCookies) } : {}),
+              'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+            },
+            body: formParams.toString(),
+            redirect: 'manual',
+            signal: controller.signal,
+          });
+
+          const regCookies = collectSetCookiePairs(regRes);
+          if (regCookies.some((c) => c.startsWith('wordpress_logged_in_'))) {
+            wpCookies = mergeCookieStrings(preCookies, regCookies);
+            registered = true;
+            break;
+          }
+
+          const regHtml = await regRes.text().catch(() => '');
+          lastErrorMsg = extractPlainTextHtmlError(regHtml);
+          if (lastErrorMsg) break;
+        }
+
+        if (!registered) {
+          res.status(400).json({
+            error:
+              lastErrorMsg ||
+              'Unable to complete registration. Please check your details or sign in if you already have an account.',
+          });
+          return;
+        }
+      }
+
+      const sessionId = crypto.randomBytes(24).toString('hex');
+      const now = Date.now();
+      const session: CustomerSessionRecord = {
+        sessionId,
+        userId,
+        email,
+        firstName,
+        lastName,
+        displayName: `${firstName} ${lastName}`.trim(),
+        petName,
+        petType,
+        wpCookies,
+        createdAt: now,
+        expiresAt: now + SESSION_TTL_MS,
+      };
+      customerSessions.set(sessionId, session);
+
+      const signedToken = signSessionId(sessionId);
+      setCustomerSessionCookie(res, signedToken);
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(201).json({
+        ok: true,
+        sessionToken: signedToken,
+        user: toPublicCustomerUser(session),
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      res.status(isTimeout ? 504 : 502).json({
+        error: isTimeout
+          ? 'Registration timed out. Please try again.'
+          : 'Unable to create your account right now. Please try again.',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  app.post('/api/woocommerce/auth/logout', (req: Request, res: Response) => {
+    if (!isAllowedSameOriginRequest(req)) {
+      res.status(403).json({ error: 'Invalid request origin.' });
+      return;
+    }
+
+    const session = getAuthenticatedSession(req);
+    if (session) {
+      customerSessions.delete(session.sessionId);
+    }
+    clearCustomerSessionCookie(res);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true });
+  });
+
+  app.post('/api/woocommerce/auth/pet-profile', async (req: Request, res: Response) => {
+    if (!isAllowedSameOriginRequest(req)) {
+      res.status(403).json({ error: 'Invalid request origin.' });
+      return;
+    }
+
+    const session = getAuthenticatedSession(req);
+    if (!session) {
+      res.status(401).json({ error: 'Please sign in to save your pet profile.' });
+      return;
+    }
+
+    const body = (req.body || {}) as { petName?: string; petType?: string };
+    session.petName = String(body.petName || '').trim().slice(0, 80);
+    session.petType = String(body.petType || '').trim().slice(0, 40);
+
+    const creds = getServerWooCredentials();
+    if (creds && session.userId) {
+      try {
+        const storeOrigin = resolveStoreBaseUrl();
+        const auth = `Basic ${Buffer.from(`${creds.key}:${creds.secret}`).toString('base64')}`;
+        await fetch(`${storeOrigin}/wp-json/wc/v3/customers/${session.userId}`, {
+          method: 'PUT',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: auth,
+            'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+          },
+          body: JSON.stringify({
+            meta_data: [
+              { key: 'pet_name', value: session.petName },
+              { key: 'pet_type', value: session.petType },
+            ],
+          }),
+        });
+      } catch {
+        // Non-blocking metadata sync
+      }
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, user: toPublicCustomerUser(session) });
+  });
+
+  app.get('/api/woocommerce/products/:id/reviews', async (req: Request, res: Response) => {
+    const productId = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(productId)) {
+      res.status(400).json({ error: 'Invalid product ID.' });
+      return;
+    }
+
+    let storeOrigin: string;
+    try {
+      storeOrigin = resolveStoreBaseUrl();
+    } catch {
+      res.status(500).json({ error: 'Store configuration is invalid.' });
+      return;
+    }
+
+    const creds = getServerWooCredentials();
+    if (creds) {
+      const upstream = new URL(`${storeOrigin}/wp-json/wc/v3/products/reviews`);
+      upstream.searchParams.set('product', productId);
+      upstream.searchParams.set('per_page', '25');
+      upstream.searchParams.set('status', 'approved');
+      const auth = `Basic ${Buffer.from(`${creds.key}:${creds.secret}`).toString('base64')}`;
+      await handleProxyFetch(res, `v3:reviews:${productId}`, upstream.toString(), auth);
+      return;
+    }
+
+    const storeReviewsUrl = new URL(`${storeOrigin}/wp-json/wc/store/v1/products/reviews`);
+    storeReviewsUrl.searchParams.set('product_id', productId);
+    storeReviewsUrl.searchParams.set('per_page', '25');
+    await handleProxyFetch(res, `store:reviews:${productId}`, storeReviewsUrl.toString());
+  });
+
+  app.post('/api/woocommerce/products/:id/reviews', async (req: Request, res: Response) => {
+    if (!isAllowedSameOriginRequest(req)) {
+      res.status(403).json({ error: 'Invalid request origin.' });
+      return;
+    }
+
+    const session = getAuthenticatedSession(req);
+    if (!session) {
+      res.status(401).json({ error: 'Please sign in to submit a product review.' });
+      return;
+    }
+
+    const productIdStr = String(req.params.id || '').trim();
+    const productId = Number.parseInt(productIdStr, 10);
+    if (!/^\d+$/.test(productIdStr) || !Number.isFinite(productId) || productId <= 0) {
+      res.status(400).json({ error: 'Invalid product ID.' });
+      return;
+    }
+
+    const body = (req.body || {}) as { rating?: number; review?: string };
+    const rating = Number.parseInt(String(body.rating ?? 5), 10);
+    const reviewText = String(body.review || '').trim();
+
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      res.status(400).json({ error: 'Please select a star rating between 1 and 5.' });
+      return;
+    }
+    if (!reviewText || reviewText.length < 4 || reviewText.length > 2000) {
+      res.status(400).json({ error: 'Please write a review between 4 and 2,000 characters.' });
+      return;
+    }
+
+    let storeOrigin: string;
+    try {
+      storeOrigin = resolveStoreBaseUrl();
+    } catch {
+      res.status(500).json({ error: 'Store configuration is invalid.' });
+      return;
+    }
+
+    const reviewerName =
+      session.displayName ||
+      [session.firstName, session.lastName].filter(Boolean).join(' ') ||
+      session.email.split('@')[0];
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
+
+    try {
+      const creds = getServerWooCredentials();
+
+      if (creds) {
+        const auth = `Basic ${Buffer.from(`${creds.key}:${creds.secret}`).toString('base64')}`;
+        const reviewRes = await fetch(`${storeOrigin}/wp-json/wc/v3/products/reviews`, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: auth,
+            'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+          },
+          body: JSON.stringify({
+            product_id: productId,
+            review: reviewText,
+            reviewer: reviewerName,
+            reviewer_email: session.email,
+            rating,
+          }),
+          signal: controller.signal,
+        });
+
+        const reviewJson = (await reviewRes.json().catch(() => ({}))) as Record<
+          string,
+          unknown
+        >;
+
+        if (!reviewRes.ok) {
+          res.status(reviewRes.status).json({
+            error:
+              typeof reviewJson.message === 'string'
+                ? reviewJson.message.replace(/<[^>]+>/g, '')
+                : 'Unable to submit your review right now.',
+          });
+          return;
+        }
+
+        proxyCache.delete(`v3:reviews:${productIdStr}`);
+        proxyCache.delete(`store:reviews:${productIdStr}`);
+
+        res.status(201).json({
+          ok: true,
+          review: {
+            id: typeof reviewJson.id === 'number' ? reviewJson.id : Date.now(),
+            reviewer: reviewerName,
+            rating,
+            review: reviewText,
+            dateCreated: new Date().toISOString(),
+            verified: Boolean(reviewJson.verified),
+          },
+        });
+        return;
+      }
+
+      if (!session.wpCookies) {
+        res.status(401).json({
+          error: 'Your session has expired. Please sign in again to submit a review.',
+        });
+        return;
+      }
+
+      const commentForm = new URLSearchParams({
+        comment_post_ID: productIdStr,
+        comment: reviewText,
+        rating: String(rating),
+        comment_parent: '0',
+      });
+
+      const wpPostRes = await fetch(`${storeOrigin}/wp-comments-post.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'text/html',
+          Cookie: session.wpCookies,
+          Origin: storeOrigin,
+          'User-Agent': 'ZampaClub-Storefront-Proxy/1.0',
+        },
+        body: commentForm.toString(),
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+
+      if (wpPostRes.status >= 400) {
+        const html = await wpPostRes.text().catch(() => '');
+        const msg = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        res.status(wpPostRes.status === 409 ? 409 : 400).json({
+          error:
+            msg.slice(0, 180) ||
+            'Unable to submit your review. Please make sure you have not already posted an identical review.',
+        });
+        return;
+      }
+
+      proxyCache.delete(`v3:reviews:${productIdStr}`);
+      proxyCache.delete(`store:reviews:${productIdStr}`);
+
+      res.status(201).json({
+        ok: true,
+        review: {
+          id: Date.now(),
+          reviewer: reviewerName,
+          rating,
+          review: reviewText,
+          dateCreated: new Date().toISOString(),
+          verified: false,
+        },
+      });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      res.status(isTimeout ? 504 : 502).json({
+        error: isTimeout
+          ? 'Review submission timed out. Please try again.'
+          : 'Unable to submit your review right now.',
       });
     } finally {
       clearTimeout(timer);

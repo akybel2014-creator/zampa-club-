@@ -117,6 +117,9 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [authContextMessage, setAuthContextMessage] = useState<string | null>(null);
+  const [pendingReviewProduct, setPendingReviewProduct] = useState<Product | null>(null);
+  const [reviewFocusSignal, setReviewFocusSignal] = useState(0);
 
   const {
     cartItems,
@@ -607,6 +610,14 @@ export default function App() {
             product={selectedProduct}
             onClose={() => setSelectedProduct(null)}
             onAddToCart={handleAddToCart}
+            reviewFocusSignal={reviewFocusSignal}
+            onRequireAuthForReview={(prod) => {
+              setPendingReviewProduct(prod);
+              setAuthContextMessage(
+                `Sign in or create an account to leave a review for ${prod.name}.`
+              );
+              setAccountOpen(true);
+            }}
           />
         </Suspense>
       )}
@@ -628,11 +639,24 @@ export default function App() {
         <Suspense fallback={null}>
           <AccountModal
             isOpen={accountOpen}
-            onClose={() => setAccountOpen(false)}
-            sourceMode={sourceMode}
-            categorySourceMode={categorySourceMode}
-            productCount={allProducts.length}
-            categoryCount={wooCategories.length}
+            authContextMessage={authContextMessage}
+            onClose={() => {
+              setAccountOpen(false);
+              setAuthContextMessage(null);
+              setPendingReviewProduct(null);
+            }}
+            onAuthSuccess={
+              pendingReviewProduct
+                ? () => {
+                    const targetProduct = pendingReviewProduct;
+                    setAccountOpen(false);
+                    setAuthContextMessage(null);
+                    setPendingReviewProduct(null);
+                    setSelectedProduct(targetProduct);
+                    setReviewFocusSignal((n) => n + 1);
+                  }
+                : undefined
+            }
           />
         </Suspense>
       )}
