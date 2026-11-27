@@ -118,6 +118,9 @@ export function CatalogSection({
     Boolean(activeSubFilter) ||
     searchQuery.trim().length > 0;
 
+  const isDefaultHomepageView = !hasExtraFilter && activeTab === 'all';
+  const displayedProducts = isDefaultHomepageView ? products.slice(0, 8) : products;
+
   const activeCategoryName =
     activeParentCategory?.name ||
     wooCategories.find((c) => c.id === activeCategoryId)?.name ||
@@ -145,8 +148,8 @@ export function CatalogSection({
             Curated Catalog
           </h2>
           <p className="text-sm text-[#57534E] mt-1">
-            {products.length}{' '}
-            {products.length === 1 ? 'item available' : 'items available'} · Select
+            {displayedProducts.length}{' '}
+            {displayedProducts.length === 1 ? 'item available' : 'items available'} · Select
             size or color options
           </p>
         </div>
@@ -379,7 +382,7 @@ export function CatalogSection({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {products.map((product) => (
+          {displayedProducts.map((product) => (
             <ProductCard
               key={product.id}
               product={product}

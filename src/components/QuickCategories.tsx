@@ -1,3 +1,4 @@
+import catChickenCoopsImg from '../assets/images/cat_chicken_coops_1795787336834.jpg';
 import prodCucciaImg from '../assets/images/prod_cuccia_nuvola.webp';
 import prodDistributoreImg from '../assets/images/prod_distributore_wifi.webp';
 import prodSpazzolaImg from '../assets/images/prod_spazzola_vapore.webp';
@@ -26,6 +27,9 @@ function resolveCategoryImage(cat: WooCategory): string {
   }
   if (slug === 'cat' || slug === 'cats' || slug === 'gatti' || /\bcats?\b/.test(name)) {
     return HERO_ASSETS.promoCats;
+  }
+  if (slug.includes('chicken') || slug.includes('coop') || name.includes('chicken') || name.includes('coop')) {
+    return catChickenCoopsImg;
   }
   if (cat.image) {
     return cat.image;
